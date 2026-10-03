@@ -1,0 +1,38 @@
+# Secrets and private source/session data
+.env
+.env.*
+!.env.example
+.local/
+.agent-reach/
+.codegraph/
+cookies*.json
+*token*.json
+*credentials*.json
+pairing.json
+*.key
+*.pem
+*.sqlite*
+*.db
+
+# Generated artifacts and caches
+artifacts/
+data/private/
+downloads/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+playwright-report/
+test-results/
+*.log
+
+# Local editor/OS state
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

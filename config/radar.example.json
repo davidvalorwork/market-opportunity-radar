@@ -1,0 +1,66 @@
+{
+  "schema_version": "0.1-proposal",
+  "status": "design_only_not_executable",
+  "mode": "read_only",
+  "products": {
+    "categories": ["perfumes", "watches"],
+    "keywords": [],
+    "brands": [],
+    "excluded_terms": [],
+    "conditions": ["new", "used", "unknown"]
+  },
+  "markets": {
+    "origin_countries": [],
+    "destination_country": null,
+    "report_currency": "USD",
+    "exchange_rates": []
+  },
+  "sources": [
+    {"id": "web", "enabled": false, "required": false, "allowed_domains": [], "seed_urls": []},
+    {"id": "mercadolibre", "enabled": false, "required": false, "sites": []},
+    {"id": "facebook", "enabled": false, "required": false, "authorized_group_refs": []},
+    {"id": "instagram", "enabled": false, "required": false, "seller_usernames": []},
+    {"id": "twitter", "enabled": false, "required": false, "seller_usernames": []},
+    {"id": "file_import", "enabled": false, "required": false, "authorized_paths": []}
+  ],
+  "discovery": {
+    "max_queries": 100,
+    "max_pages_per_query": 3,
+    "max_duration_seconds": 1800,
+    "max_attempts_per_task": 3,
+    "continuous": false
+  },
+  "concurrency": {
+    "global_workers": 4,
+    "workers_per_domain": 1,
+    "shared_browser_workers": 1
+  },
+  "matching": {
+    "require_variant_compatibility": true,
+    "require_condition_compatibility": true,
+    "require_unit_compatibility": true,
+    "review_ambiguous_pairs": true,
+    "authenticity_claim_is_verification": false
+  },
+  "economics": {
+    "available_capital": null,
+    "minimum_profit": null,
+    "minimum_margin": null,
+    "cost_inputs": {},
+    "missing_cost_policy": "show_incomplete_without_full_profit",
+    "listing_price_is_realized_sale": false
+  },
+  "ai": {
+    "enabled": false,
+    "provider": "local_only",
+    "installed_model": null,
+    "max_inferences_per_run": 0,
+    "paid_fallback_allowed": false
+  },
+  "security": {
+    "outbound_actions_enabled": false,
+    "raw_content_in_telemetry": false,
+    "private_network_fetch_allowed": false,
+    "credential_values_in_config_allowed": false
+  }
+}

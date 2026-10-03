@@ -1,0 +1,22 @@
+# Instrucciones para trabajar en Market Opportunity Radar
+
+- Leer README.md, CONTEXT.md, docs/ROADMAP.md y SECURITY.md antes de implementar.
+- Este es el radar de productos/reventa, no Job Radar, correo masivo ni Evidence Lab de facturas.
+- Mantener explícito el estado: documentación no significa funcionalidad; comando propuesto no significa comando existente.
+- Priorizar la vertical local con fixtures sintéticos y cálculos determinísticos, luego fuentes autorizadas verificadas.
+- Arquitectura hexagonal modular; dominio independiente de Agent Reach, navegador, persistencia y LLM.
+- Agent Reach es la ruta preferida para investigación y canales soportados. Leer su skill antes de usarla; no atribuir capacidades no probadas.
+- Preflight de acceso/credenciales antes de correr fuentes. No leer cookies de archivos del navegador ni hacer login automáticamente.
+- No compras, pagos, reservas, mensajes, publicaciones, follows o ingreso a grupos sin encargo/autorización separados.
+- No APIs pagadas, descargas de modelos o infraestructura cloud implícitas.
+- Comparar variante, unidad, condición y procedencia. Precio publicado no equivale a transacción; autenticidad declarada no equivale a verificada.
+- Costos ausentes son desconocidos, no cero. Aritmética decimal y tipos de cambio fechados.
+- Preservar salidas, fallos y desacuerdos; no bajar gates o cambiar etiquetas para fingir calidad.
+- No declarar revisión humana, ROI o ganancias realizadas a partir de fixtures o IA.
+- Secretos y datos privados permanecen en .local/, fuera de Git y telemetría.
+- Usar apply_patch para edits, preservar cambios del usuario y evitar operaciones destructivas.
+- Antes de commit/push, ejecutar `python scripts/check_docs.py` y las pruebas del código que exista.
+- Ramas de trabajo con prefijo codex/; main contiene entregas verificadas. No merge/push externo sin autorización aplicable.
+- No contribuir a repos externos: el usuario excluyó ese frente.
+- Subagentes solo con autorización o instrucciones aplicables; acordar contratos y propiedad de archivos para evitar solapamientos.
+- Si existe CodeGraph, usarlo para preguntas estructurales. Si no está inicializado, consultar antes de crear su índice.
