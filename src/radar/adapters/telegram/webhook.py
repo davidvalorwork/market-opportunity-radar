@@ -8,7 +8,16 @@ architecture-final-review.md §4):
   b. body size limit                       -> 413
   c. safe JSON parse, update_id >= 0       -> 400
   d. dedupe by update_id                   -> 200, no new effect
-  e. authorize numeric user_id (owner/collaborator); /start <code> invites
+  e. authorize numeric user_id (owner/collaborator); /start <code> invites.
+     Unknown user + bare /start -> request_contact keyboard (only the dedupe
+     key is stored).
+  e1. contact enrollment (private chat ``message.contact``): only the sender's
+     OWN contact (``contact.user_id == from.id``) counts; the number is
+     normalized to E.164 and looked up in ``phone_allowlist``. Match ->
+     ``users.enroll`` (persist before the answer; failure -> 500, no answer),
+     then the consent prompt. Forwarded card, no match or already enrolled ->
+     neutral/friendly reply and only the dedupe key. The phone number is never
+     stored, logged or returned: only user_id and role reach ``users.enroll``.
   e2. consent gate (consent.py): until the user (owner included) accepts the
      CURRENT consent version only /start, /mis_datos, /borrar, /stop and the
      consent buttons work; anything else gets the consent prompt and is NOT
@@ -20,8 +29,8 @@ architecture-final-review.md §4):
      a Bot API method in the body. Persistence failure -> 500 (Telegram retries);
      a command that was not stored is never acknowledged.
 
-Injected dependencies (src/radar/ports/ does not exist yet; agent A owns it).
-Each maps to a future port:
+Injected dependencies (src/radar/ports/ has no user-directory, invite or
+idempotency port yet; agent A owns it). Each maps to a future port:
 
 - ``secret`` (str): webhook secret_token, loaded by the entrypoint factory from
   SSM (config/secret port).
@@ -45,6 +54,16 @@ Each maps to a future port:
   ``idempotency_keys`` and sets ``consent_version``/``consent_accepted_at`` on
   the user, plus an append-only consent history item kept as proof. Returns
   False, writing nothing, if any key already exists; raises on any other failure.
+- ``users.enroll(telegram_user_id, role, enrolled_at, idempotency_keys) -> bool``:
+  user directory port, conditional create. ONE transaction that creates the
+  user record (role, fresh opaque ``user_ref``, ``owner_ref``, no consent) only
+  if the user does not exist yet, plus every key in ``idempotency_keys``.
+  Returns False, writing nothing, if the user is already enrolled or any key
+  exists; raises on any other failure. Never receives the phone number.
+- ``phone_allowlist.lookup(e164) -> "owner" | "collaborator" | None``: allowlist
+  config (allowlist.PhoneAllowlist). Local wiring: ``PhoneAllowlist.from_file``
+  on ``.local/allowlist.json``; production: ``PhoneAllowlist.from_json`` on the
+  SSM SecureString ``/market-radar/allowlist_phones`` (config/secret port).
 - ``invites.redeem(code_sha256, telegram_user_id, now) -> bool``: invite store.
   Atomically consumes an unused, unexpired (now < expires_at) invite stored by
   hash and enrolls the user as collaborator; False otherwise.
@@ -62,6 +81,7 @@ from datetime import timedelta
 from jsonschema import ValidationError
 
 from radar.adapters.telegram import consent
+from radar.adapters.telegram.allowlist import normalize_phone
 from radar.contracts import validate
 
 MAX_BODY = 64 * 1024
@@ -81,6 +101,15 @@ UNKNOWN_TEXT = "Comando no reconocido."
 TOO_LONG_TEXT = f"Texto demasiado largo (máximo {MAX_ARG} caracteres)."
 BAD_CALLBACK_TEXT = "Acción no válida."
 DONE_CALLBACK_TEXT = "Esta acción ya se procesó."
+SHARE_CONTACT_TEXT = ("Para usar este bot, comparte tu contacto con el botón de abajo. "
+                      "El radar solo comprueba si tu número está autorizado y no lo guarda.")
+OWN_CONTACT_TEXT = "Solo se acepta tu propio contacto, enviado con el botón."
+NOT_ALLOWED_TEXT = "No autorizado. Este bot es de uso privado."
+ENROLLED_TEXT = "Número verificado."
+ALREADY_ENROLLED_TEXT = "Ya estás autorizado."
+CONTACT_KEYBOARD = {"keyboard": [[{"text": "Compartir mi contacto", "request_contact": True}]],
+                    "one_time_keyboard": True, "resize_keyboard": True}
+REMOVE_KEYBOARD = {"remove_keyboard": True}
 
 log = logging.getLogger(__name__)
 
@@ -96,8 +125,11 @@ def _response(status, method=None):
             "body": json.dumps(method, ensure_ascii=False)}
 
 
-def _reply(chat_id, text):
-    return {"method": "sendMessage", "chat_id": chat_id, "text": text}
+def _reply(chat_id, text, reply_markup=None):
+    method = {"method": "sendMessage", "chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        method["reply_markup"] = reply_markup
+    return method
 
 
 def _answer(callback_query_id, text):
@@ -109,11 +141,13 @@ def _int(value):
 
 
 class Webhook:
-    def __init__(self, *, secret, unit_of_work, idempotency, users, invites, clock, max_body=MAX_BODY):
+    def __init__(self, *, secret, unit_of_work, idempotency, users, invites, phone_allowlist, clock,
+                 max_body=MAX_BODY):
         if not secret:
             raise ValueError("webhook secret is required")
         self._secret = secret.encode("utf-8")
         self._uow, self._seen, self._users, self._invites, self._clock = unit_of_work, idempotency, users, invites, clock
+        self._phones = phone_allowlist
         self.max_body = max_body
 
     def handle_update(self, headers, body):
@@ -158,6 +192,8 @@ class Webhook:
         chat_id, user_id = _int(chat.get("id")), _int(sender.get("id"))
         if chat_id is None or user_id is None:
             return _response(200)
+        if isinstance(message.get("contact"), dict):
+            return self._contact(update_id, key, chat_id, user_id, message["contact"])
         text = message.get("text") if isinstance(message.get("text"), str) else ""
         match = COMMAND_TEXT.fullmatch(text.strip())
         name, rest = (match.group(1).lower(), (match.group(2) or "").strip()) if match else (None, "")
@@ -166,6 +202,8 @@ class Webhook:
             if self._invites.redeem(hash_invite_code(rest), user_id, self._clock()):
                 log.info("telegram update %s invite redeemed", update_id)
                 user = self._users.get(user_id)
+        if user is None and name == "start" and not rest:
+            return self._reject(key, _reply(chat_id, SHARE_CONTACT_TEXT, CONTACT_KEYBOARD))
         role = user.get("role") if isinstance(user, dict) else None
         if role not in ("owner", "collaborator"):
             return self._reject(key, _reply(chat_id, NEUTRAL))
@@ -187,6 +225,24 @@ class Webhook:
             return _response(200)
         ack = f"Recibido: /{name}. Te aviso cuando esté listo."
         return _response(200, consent.prompt(chat_id, ack) if name == "start" and not consented else _reply(chat_id, ack))
+
+    def _contact(self, update_id, key, chat_id, user_id, contact):
+        """Enroll by allowlisted phone. The number lives only in this frame: never stored, logged or returned."""
+        if _int(contact.get("user_id")) != user_id:  # someone else's card (forwarded or attached)
+            return self._reject(key, _reply(chat_id, OWN_CONTACT_TEXT))
+        if self._users.get(user_id) is not None:
+            return self._reject(key, _reply(chat_id, ALREADY_ENROLLED_TEXT, REMOVE_KEYBOARD))
+        role = self._phones.lookup(normalize_phone(contact.get("phone_number")))
+        if role not in ("owner", "collaborator"):
+            log.info("telegram update %s contact not allowlisted", update_id)
+            return self._reject(key, _reply(chat_id, NOT_ALLOWED_TEXT, REMOVE_KEYBOARD))
+        enrolled = self._users.enroll(user_id, role, self._clock(), [key]) is True
+        log.info("telegram update %s contact enrolled=%s role=%s", update_id, enrolled, role)
+        if not enrolled:  # lost a race with a concurrent enrollment or redelivery
+            return _response(200, _reply(chat_id, ALREADY_ENROLLED_TEXT, REMOVE_KEYBOARD))
+        # ponytail: one webhook reply = one message = one reply_markup; the inline consent buttons win and the
+        # one_time contact keyboard is already hidden by the client. Remove it via BotApi if it ever matters.
+        return _response(200, consent.prompt(chat_id, ENROLLED_TEXT))
 
     def _callback(self, update_id, key, query):
         query_id, sender = query.get("id"), query.get("from")
