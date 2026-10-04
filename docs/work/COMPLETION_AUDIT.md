@@ -119,6 +119,21 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   porque los costos de fuente eran desconocidos. El implementador reportó
   **1013 + 246 subtests** (106.49 s) sobre SHA exacto. Root no sustituye esa
   suite reportada por su prueba independiente de área ni activa el bot real.
+- Hallazgo posterior reproducido por root en ese mismo `e7c19fa`: handler
+  sintético `inform` devuelve resultado `uncertain`; pasos quedan
+  `[succeeded, uncertain]` y el runtime marca el run `succeeded`. Es falso éxito,
+  no un fallo meramente documental. A16 valida estados antes del checkpoint y
+  A18 adapta su incertidumbre. Por ello **no se acepta ese candidato como cierre
+  final** a partir de sus
+  38 pruebas o suite verde anteriores. Probe sin red, modelo o envío real.
+- A16 follow-up `a703849`: candidato limpio; coordinador **59/59** (35.23 s)
+  en nueva copia independiente del SHA, y CLI `--fixture` volvió a devolver
+  webhook200/read1/IA0/red0/envíos0, `partial` por costo desconocido. Estados
+  desconocidos e inciertos quedan bloqueados, también desde checkpoints;
+  causas externas no pasan como texto libre al control. Replay no reinvoca el
+  handler y un run bloqueado no puede aprobar una pantalla previa. Implementador
+  reportó **1034 + 246 subtests** (115.90 s) del SHA final. La combinación A18,
+  revisión e integración siguen pendientes; no se habilitan cuentas reales.
 - A17 `69aeae0`: coordinador **73/73 Windows** (5.39 s) en copia independiente,
   después **73/73 Linux** (8.19 s), cero skips/fallos. TLS/socket/certificados
   sintéticos reales; incluye límites durante I/O, cancelación/trickle, pins
@@ -154,7 +169,7 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A11 | Programación/zonas, replay, pausa/borrado, cuotas y autorización de efectos | Candidato `ce2a4c4`: coordinador 60/60 área y combinación 819 + 246. Local durable/DST/cuotas UTC/ocurrencias/outbox comprobados; `/tareas`, calendario confirmado/factory/ejecutor y trigger operativo pendientes. EventBridge no provisionado |
 | A14 | Backend age durable compartido para los flujos privados | Candidato `edfd63a`; coordinador45/45 Windows y45/45 Linux, combinación975 + 246. age/ACL/bindings/cuotas y A6/A8/A9/A12 ensayados. Revisión, factory real, worker remoto/audiencias con claves distintas y CI remota pendientes; no habilita cuentas |
 | A15 | Calendario IANA disponible en runtime/lock Windows | Candidato `4c5e4be` cierra fallo de dependencia en venv nuevo; 6/6 calendario real y combinación975 + 246. Main/integración/revisión pendientes |
-| A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Final e7c19fa, coordinador38/38 con age real y CLI0IA/0red/0envíos; implementador1013 + 246 suiteexacta. Namespace inbox corregido. Privacidad/claims/replay/delivery/callbacks/scheduler probados localmente; A18, control UI/extracción general/revisión/integración faltan. Inboxcache20 sin temporal/cursor; no bot real |
+| A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Candidato a703849 cierra false-success de e7c19fa; root59/59/CLI0IA0red0envíos, implementador1034 +246. Estados desconocidos/uncertain bloqueados, replay sin segundo handler y pantalla previa sin aprobación tras bloqueo. A18, control UI/extracción general/revisión/integración faltan. Inboxcache20 sin temporal/cursor; no bot real |
 | A17 | HTTP público real conforme a A8 | Candidato69aeae0, coordinador73/73 Windows y73/73 Linux. Transporte pin/TLS/peer/stream/deadline/cancel acotado verificado sintéticamente. DNS previo/capacidades/factory/fuentes reales, revisión/integración siguen pendientes; no cookies ni búsqueda social/CLI/browser |
 | A18 | Investigación contextual y respuesta general durante cualquier etapa | En desarrollo aislado; A10 contexto exacto → evidencia A8/A9 → composición privada y reasoner opcional con presupuesto. Nuevo schema candidato sujeto a B; pruebas, wiring A16 y revisión aún pendientes. Literal dictado no obliga a búsqueda ni IA; no inbox o modelo real acreditado |
 | A19 | DNS previo a HTTP bajo plazo/cancelación del pedido | Iniciado en rama aislada sobre A17, adapter host y helper stdlib sin editar A8/B. Debe probar deadline residual DNS+HTTP, cleanup y aislamiento concurrente; sigue pendiente, no conexión DNS Internet ni capacidad externa demostrada |
