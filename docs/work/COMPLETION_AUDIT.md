@@ -181,6 +181,15 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   ejecutable dentro del límite de memoria512MiB del contenedor. No fue un cambio
   del producto ni una relajación de sus permisos/plazos. Todos los contenedores
   propios autoeliminados; cinco ajenos intactos. No cuentas, cookies, cloud o IA.
+- A0g follow-up de preparación `3ec1bc1`, limpio, incorpora A3 `721ea5e` sólo
+  en su propia rama. Conciliados los dos conflictos README/ROADMAP sin restaurar
+  la antigua restricción comercial ni eliminar límites/evidencia de A3.
+  **536 + 238 subtests** (26.63 s), docs/diff verdes sobre el árbol final.
+  Preview privado `684735b`/árbol `5dc7f6c` combina A0g con `c04fde1` sin
+  conflictos; docs verificadas. Diff confirma **cero cambios** en src/tests,
+  contratos, helpers/Go/Node, lab, scripts, CI o dependencias respecto al código
+  del wheel verificado1213+251. No se presenta como una nueva suite completa
+  contra ese preview documental. No cambia main ni sustituye la revisión B.
 
 ## Cierre por entrega
 
@@ -194,7 +203,7 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | B6 | Extracción, privacidad/cache/costo; evaluación antes habilitar | Integrado; B reportó humo real y activación. No prueba router general ni evaluación comparativa/humana completa |
 | A3/A3b | Flujo persistente y correcciones obligatorias de B | Código corregido y probado en candidato. Nueva revisión B e integración pendientes; A3b no es trabajo de código por rehacer |
 | A4 | Contratos, preflight, fixtures, límites/cleanup, Docker/RIE | Integrada/probada para fixtures. Helper age/sesiones reales y fuentes autorizadas siguen pendientes; F6 completo no se deduce solo del incremento A4 |
-| A0g | Alcance general coherente, glosario/plan, tests | Candidato documental `dc0eb8f` listo; 387 + 238 subtests y docs aprobados. Incluye investigación contextual y chats/respuestas cualquier etapa. Revisión/integración pendientes |
+| A0g | Alcance general coherente, glosario/plan, tests | Follow-up3ec1bc1 prepara A3 y concilia README/ROADMAP;536 +238/docs verdes. Preview684735b con candidatos combina sin conflictos/código idéntico al wheel1213 +251. Chats/respuestas/investigación cualquier etapa documentados; revisión/integración pendientes |
 | A12 | Polling durable, takeover explícito, reutilizar webhook; prueba propietario/bot real | Candidato `11bf9ba`: coordinador comprobó 52/52 área y suite 588 + 238 subtests (34.94 s), docs/diff verdes. Vault/factory/tick reales, revisión B e integración pendientes; no conectado al bot real |
 | A6 | Router general tipado, registro, budgets, confirm/correct/cancel, callbacks; tests | Candidato `5640f3b`: implementador verificó 52 área/588 + 246 subtests. Coordinador Node229/229/23schemas y combinación A12+A6 640 + 246. Vault cifrado real, B/schema/prompt, webhook, ejecutores e integración pendientes |
 | A8 | Fuentes web/social generales por capacidades, preflight, lectura/dedupe/evidencia | Candidato `6324b94` incluye 73 tests nuevos; prueba conjunta independiente 713 + 246. Lecturas inyectadas/cursores privados/CLI offline. Revisión, wiring, age/capacidades reales y dedupe entre corridas pendientes; no en main ni redes habilitadas |
