@@ -80,6 +80,28 @@ def test_dto_identity_distinguishes_operation_and_transport_message():
         accepted.operation_id = 'operation:changed'
 
 
+def test_receipt_secondary_indexes_are_immutable_and_backwards_compatible():
+    original = ports.Receipt('telegram', 'event:update', 'a' * 64)
+    assert original.idempotency_refs == ()
+    refs = ('event:update', 'action:opaque')
+    receipt = ports.Receipt('telegram', 'event:update', 'a' * 64, refs)
+    assert receipt.idempotency_refs == refs
+    with pytest.raises(FrozenInstanceError):
+        receipt.idempotency_refs = ('action:changed',)
+    with pytest.raises(TypeError):
+        receipt.idempotency_refs[0] = 'action:changed'
+    assert get_type_hints(ports.Receipt)['idempotency_refs'] == tuple[str, ...]
+
+
+def test_accept_command_declares_secondary_index_atomicity_not_runtime_proof():
+    contract = inspect.getdoc(ports.UnitOfWork.accept_command)
+    assert 'ALL receipt.idempotency_refs' in contract
+    assert 'owner-scoped transaction' in contract
+    assert 'different operation raises ConditionalConflict' in contract
+    assert 'writes nothing' in contract
+    assert 'original IDs without new work' in contract
+
+
 def test_control_document_reuses_canonical_envelope_without_duplicated_schema():
     root = Path(__file__).resolve().parents[1]
     path = sorted((root / 'contracts/examples/valid/envelope.v1').glob('*.json'))[0]

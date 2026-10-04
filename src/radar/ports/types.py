@@ -37,11 +37,17 @@ class BlobPointer:
 
 @dataclass(frozen=True)
 class Receipt:
-    """Stable channel event key plus digest of the authorized command."""
+    """Stable event and opaque secondary idempotency refs, all owner-scoped.
+
+    A callback can require both its update receipt and its opaque action receipt
+    to be indexed together. These references are resolved by the trusted adapter;
+    they are never raw Telegram user IDs, callback contents or authentication.
+    """
 
     channel: str
     event_ref: str
     command_hash: str
+    idempotency_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

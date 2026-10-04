@@ -27,6 +27,12 @@ class UnitOfWork(Protocol):
         Same owner/channel/event and command hash returns the ORIGINAL IDs with
         replayed=True. Mismatching hash raises ConditionalConflict, never rewrites
         an accepted command. Envelope IDs and outbox command must match.
+
+        The principal event and ALL receipt.idempotency_refs are committed in
+        the same owner-scoped transaction as command+outbox. A secondary-ref
+        collision with a different operation raises ConditionalConflict and
+        writes nothing: no partial receipt/index/outbox. An identical replay of
+        the original operation returns its original IDs without new work.
         """
         ...
 
