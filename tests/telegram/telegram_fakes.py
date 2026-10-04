@@ -8,6 +8,7 @@ the same behaviour.
 from datetime import datetime, timezone
 import json
 
+from radar.adapters.telegram.consent import CONSENT_VERSION
 from radar.adapters.telegram.webhook import Webhook, hash_invite_code
 
 SECRET = "synthetic-webhook-secret_0123456789"
@@ -46,14 +47,33 @@ class UnitOfWork:
 
 
 class Users:
-    def __init__(self):
+    """Directory/allowlist. Owner and collaborator start with the current consent accepted."""
+
+    def __init__(self, idempotency=None, fail_consent=False):
+        accepted = {"consent_version": CONSENT_VERSION, "consent_accepted_at": NOW}
         self.records = {
-            OWNER_ID: {"role": "owner", "user_ref": "tguser:owner-a", "owner_ref": "owner:radar-pilot"},
-            COLLAB_ID: {"role": "collaborator", "user_ref": "tguser:collab-b", "owner_ref": "owner:radar-pilot"},
+            OWNER_ID: {"role": "owner", "user_ref": "tguser:owner-a", "owner_ref": "owner:radar-pilot", **accepted},
+            COLLAB_ID: {"role": "collaborator", "user_ref": "tguser:collab-b", "owner_ref": "owner:radar-pilot",
+                        **accepted},
         }
+        self.idempotency, self.fail_consent = idempotency or Idempotency(), fail_consent
+        self.consent_calls, self.consent_log = [], []
 
     def get(self, user_id):
         return self.records.get(user_id)
+
+    def accept_consent(self, user_ref, version, accepted_at, idempotency_keys):
+        """One atomic write: all keys + consent fields + history item, or nothing."""
+        self.consent_calls.append((user_ref, version, accepted_at, list(idempotency_keys)))
+        if self.fail_consent:
+            raise RuntimeError("synthetic consent persistence failure")
+        if any(key in self.idempotency.keys for key in idempotency_keys):
+            return False
+        record = next(r for r in self.records.values() if r["user_ref"] == user_ref)
+        self.idempotency.keys.update(idempotency_keys)
+        record.update(consent_version=version, consent_accepted_at=accepted_at)
+        self.consent_log.append((user_ref, version, accepted_at))
+        return True
 
 
 class Invites:
@@ -79,10 +99,10 @@ class Invites:
 class Bot:
     """A webhook plus handles on every fake, for assertions."""
 
-    def __init__(self, fail=False):
+    def __init__(self, fail=False, fail_consent=False):
         self.idempotency = Idempotency()
         self.uow = UnitOfWork(self.idempotency, fail=fail)
-        self.users = Users()
+        self.users = Users(self.idempotency, fail_consent=fail_consent)
         self.invites = Invites(self.users)
         self.now = NOW
         self.webhook = Webhook(secret=SECRET, unit_of_work=self.uow, idempotency=self.idempotency,
@@ -95,7 +115,8 @@ class Bot:
 
     def effects(self):
         return {"keys": set(self.idempotency.keys), "uow_calls": len(self.uow.calls),
-                "users": set(self.users.records), "invite_calls": len(self.invites.calls)}
+                "users": set(self.users.records), "invite_calls": len(self.invites.calls),
+                "consent_calls": len(self.users.consent_calls)}
 
 
 def message(update_id, user_id, text, chat_type="private"):
