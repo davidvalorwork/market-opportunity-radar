@@ -239,3 +239,29 @@ func TestListOwnIdentityOutsideFirstPageRemainsBounded(t *testing.T) {
 		t.Fatal("own anchor failed or connected")
 	}
 }
+
+func TestSendOwnCapturesOnlyProviderEchoNotSendAcknowledgement(t *testing.T) {
+	ctx, r := context.Background(), sendRequest()
+	var body map[string]string
+	if err := json.Unmarshal(r.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	body["chat_ref"] = "chat:self"
+	r.Body, _ = json.Marshal(body)
+	db, hash, err := journal(ctx, t.TempDir(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	f := &protocolFixture{FakeClient: whatsapp.FakeClient{Chats: map[string]contract.Chat{"chat:self": {ChatRef: "chat:self"}}}}
+	c, _ := gateChannel(r.ID, 2)
+	if _, err = run(ctx, f, r, c, db, hash); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.filters) != 2 || len(f.filters[0]) != 0 || len(f.filters[1]) != 1 || f.filters[1][0] != "chat:self" {
+		t.Fatal("own capture not explicitly enabled")
+	}
+	if len(f.Pending()) != 0 || f.Calls["sync"] != 0 {
+		t.Fatal("send ACK fabricated incoming")
+	}
+}
