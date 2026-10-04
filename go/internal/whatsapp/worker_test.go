@@ -3,6 +3,8 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -323,11 +325,13 @@ func TestSync(t *testing.T) {
 		{name: "no enabled messages", setup: func(f *fx) { f.c.Messages = msgs[1:] }, version: 2},
 		{name: "logged out", setup: func(f *fx) { f.c.Err = map[string]error{"sync": ErrLoggedOut} }, code: contract.NeedsReauth, version: 1},
 		{name: "stream replaced", setup: func(f *fx) { f.c.Err = map[string]error{"connect": ErrStreamReplaced} }, code: contract.SessionConflict, version: 1},
-		{name: "offline sync incomplete", setup: func(f *fx) { f.c.SyncIncomplete = true }, code: contract.Timeout, version: 1},
+		// Received messages were acked to WhatsApp: the session is saved so they stay pending (B7b).
+		{name: "offline sync incomplete", setup: func(f *fx) { f.c.SyncFail = ErrTimeout }, code: contract.Timeout, version: 2},
 		{name: "session version conflict", setup: func(f *fx) { f.sessions.Versions[ref] = 5 }, code: contract.SessionConflict, kept: 1, version: 5},
 		// v1 cannot page: budget_exhausted, but the session is saved so the 101 messages stay pending (gap a).
 		{name: "more than 100 messages", setup: func(f *fx) { f.c.Messages = many }, code: contract.BudgetExhausted, version: 2},
-		{name: "blob store failure", setup: func(f *fx) { f.blobs.PutErr = ErrTimeout }, code: contract.Timeout, version: 1},
+		// Sealing failed before the v1 Ack: the saved session keeps the messages pending, not advanced past them.
+		{name: "blob store failure", setup: func(f *fx) { f.blobs.PutErr = ErrTimeout }, code: contract.Timeout, version: 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -368,5 +372,110 @@ func TestSync(t *testing.T) {
 			}
 			schematest.Validate(t, "whatsapp.messages.private.v1", got)
 		})
+	}
+}
+
+// B7b: a sync that fails after Connect may already hold messages WhatsApp considers
+// delivered. It saves the session (on its own budget, even past the job deadline) and keeps
+// its error code; the next sync returns everything. StreamReplaced and LoggedOut never save;
+// a failed save surfaces as an error. Every case runs as v1 and v2.
+func TestSyncFailureSavesReceived(t *testing.T) {
+	now := contract.Time{Time: time.Now().UTC()}
+	var msgs []contract.Message
+	for _, s := range []string{"SYNTHETIC-A", "SYNTHETIC-B", "SYNTHETIC-C"} {
+		msgs = append(msgs, contract.Message{ChatRef: "wachat:seller-a", Text: s, ObservedAt: now})
+	}
+	msgs = append(msgs, contract.Message{ChatRef: "wachat:private", Text: "SYNTHETIC-PRIVATE-NEVER-KEEP", ObservedAt: now})
+	short := func(e *contract.Envelope) { e.Deadline.Time = time.Now().Add(50 * time.Millisecond).UTC() }
+	cases := []struct {
+		name    string
+		setup   func(*fx, *Worker, *contract.Envelope)
+		code    string
+		version int  // stored session version after the failed run
+		saved   bool // save succeeded: session_version set and the next sync returns all three messages
+		lost    bool // save attempted and failed: the error says messages were not persisted
+	}{
+		{name: "deadline before offline sync completed", setup: func(f *fx, _ *Worker, e *contract.Envelope) { f.c.BlockSync = true; short(e) },
+			code: contract.Timeout, version: 2, saved: true},
+		{name: "connect failure mid-sync", setup: func(f *fx, _ *Worker, _ *contract.Envelope) { f.c.SyncFail = ErrTimeout },
+			code: contract.Timeout, version: 2, saved: true},
+		{name: "temporary ban mid-sync", setup: func(f *fx, _ *Worker, _ *contract.Envelope) { f.c.SyncFail = errors.New("temporary_ban") },
+			code: contract.Internal, version: 2, saved: true},
+		{name: "result blob store failure", setup: func(f *fx, _ *Worker, _ *contract.Envelope) { f.blobs.PutErr = ErrTimeout },
+			code: contract.Timeout, version: 2, saved: true},
+		{name: "deadline then save cas conflict", setup: func(f *fx, _ *Worker, e *contract.Envelope) {
+			f.c.BlockSync = true
+			short(e)
+			f.sessions.Versions[ref] = 5
+		}, code: contract.SessionConflict, version: 5, lost: true},
+		{name: "timeout then session blob store failure", setup: func(f *fx, _ *Worker, _ *contract.Envelope) {
+			f.c.SyncFail = ErrTimeout
+			f.sessions.Err = errors.New("snapshot blob put failed")
+		}, code: contract.Timeout, version: 1, lost: true},
+		{name: "session store hangs past the save budget", setup: func(f *fx, w *Worker, _ *contract.Envelope) {
+			f.c.SyncFail = ErrTimeout
+			f.sessions.Block, w.SaveBudget = true, 20*time.Millisecond
+		}, code: contract.Timeout, version: 1, lost: true},
+		{name: "stream replaced mid-sync", setup: func(f *fx, _ *Worker, _ *contract.Envelope) { f.c.SyncFail = ErrStreamReplaced },
+			code: contract.SessionConflict, version: 1},
+		{name: "logged out mid-sync", setup: func(f *fx, _ *Worker, _ *contract.Envelope) { f.c.SyncFail = ErrLoggedOut },
+			code: contract.NeedsReauth, version: 1},
+	}
+	for _, v := range []int{1, 2} {
+		for _, c := range cases {
+			t.Run(fmt.Sprintf("v%d/%s", v, c.name), func(t *testing.T) {
+				f := newFx()
+				f.c.Messages = msgs
+				w := f.worker("worker-a")
+				env := envelope(contract.KindSync, 1)
+				env.SchemaVersion = v
+				p := &contract.Sync{SchemaVersion: v, EnabledChatRefs: []string{"wachat:seller-a"}}
+				if v == 2 {
+					p.PageSize = 100
+				}
+				c.setup(f, w, &env)
+				r := w.Handle(context.Background(), env, p)
+				if code(r) != c.code || r.MessageCount != 0 || r.SchemaVersion != v || f.sessions.Versions[ref] != c.version {
+					t.Fatalf("result %+v error %+v version %d", r, r.Error, f.sessions.Versions[ref])
+				}
+				checkResult(t, r, "SYNTHETIC", "wachat:")
+				if strings.Contains(r.Error.Message, "not persisted") != c.lost {
+					t.Fatalf("message %q", r.Error.Message)
+				}
+				want := 0
+				if c.saved {
+					want = c.version
+				}
+				if r.SessionVersion != want {
+					t.Fatalf("session_version %d, want %d", r.SessionVersion, want)
+				}
+				if snap := f.c.Calls["snapshot"] > 0; snap != (c.saved || c.lost) {
+					t.Fatalf("snapshot taken=%v: %v", snap, f.c.Calls)
+				}
+				if f.leases.Held(ref) || f.c.Calls["close"] != 1 {
+					t.Fatalf("lease held or client not closed: %v", f.c.Calls)
+				}
+				if !c.saved {
+					return
+				}
+				// Next run from the saved version, faults cleared: nothing received is lost.
+				f.c.BlockSync, f.c.SyncFail, f.blobs.PutErr = false, nil, nil
+				env2 := envelope(contract.KindSync, c.version)
+				env2.SchemaVersion = v
+				r2 := f.worker("worker-b").Handle(context.Background(), env2, p)
+				if r2.Error != nil || r2.MessageCount != 3 || r2.SessionVersion != c.version+1 {
+					t.Fatalf("second sync %+v %+v", r2, r2.Error)
+				}
+				got, err := contract.DecodeMessagesPrivate(f.openBlob(t, r2.PrivateRef))
+				if err != nil || len(got.Messages) != 3 {
+					t.Fatalf("private %v", err)
+				}
+				for i, m := range got.Messages {
+					if m.Text != msgs[i].Text {
+						t.Fatalf("message %d: %q", i, m.Text)
+					}
+				}
+			})
+		}
 	}
 }
