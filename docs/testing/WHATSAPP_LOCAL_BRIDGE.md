@@ -28,7 +28,11 @@ requiere nueva configuración explícita, no reescribe approvals.
 `list_chats(authority, account_ref, event_ref, after_ref='', limit=20)` devuelve
 referencia privada a `chats`, `has_more`; cada chat tiene `chat_ref`, `is_self`
 bool, display privado y fecha opcional. Self se compara contra el JID observado
-del dispositivo, nunca nombre/contacto parecido. Sólo metadatos: filtro vacío
+del dispositivo, nunca nombre/contacto parecido. Self se ancla primero aunque
+quede fuera de la página ordenada original; cuenta dentro del límite, no se
+duplica, y cualquier fila desplazada activa `has_more`. Esta vista acotada no
+promete cursor exhaustivo: el ancla self puede repetirse al avanzar `after_ref`.
+Sólo metadatos: filtro vacío
 antes de Connect. El puente no elimina la prohibición self-contact de A10; la
 prueba a uno mismo necesita el gate separado del host.
 

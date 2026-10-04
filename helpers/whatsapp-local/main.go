@@ -184,13 +184,25 @@ func run(ctx context.Context, client whatsapp.Client, r request, c *channel, db 
 			return nil, err
 		}
 		chats, more, err := client.ListChats(ctx, body.After, body.Limit)
-		items := make([]map[string]any, 0, len(chats))
+		own := map[string]any{"chat_ref": self, "display_name": "", "is_self": true}
+		others := make([]map[string]any, 0, len(chats))
 		for _, chat := range chats {
 			item := map[string]any{"chat_ref": chat.ChatRef, "display_name": chat.DisplayName, "is_self": chat.ChatRef == self}
 			if chat.LastMessageAt != nil {
 				item["last_message_at"] = chat.LastMessageAt
 			}
-			items = append(items, item)
+			if chat.ChatRef == self {
+				own = item
+			} else {
+				others = append(others, item)
+			}
+		}
+		// Authenticated self is an identity anchor, not part of an exhaustive
+		// cursor view. It counts toward the bound even when outside this page.
+		items := append([]map[string]any{own}, others...)
+		if len(items) > body.Limit {
+			items = items[:body.Limit]
+			more = true
 		}
 		return map[string]any{"chats": items, "has_more": more}, err
 	case "sync":
