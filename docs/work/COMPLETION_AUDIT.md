@@ -29,6 +29,10 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 - A4 integrado en `aff1c05`; evidencia anterior aún aplicable al mismo código
   `078fd06`: 42/42 Docker offline, 44/44 RIE, sin skips/OOM; incluye limpieza
   Linux y dos regresiones de descendientes. No representa una red real ni AWS.
+- A12 `11bf9ba` + A6 `5640f3b`: árbol combinado sin conflictos
+  `7a3dce85d8add57ea799541bde2d470c226c03b7`, comprobado por el coordinador
+  en snapshot fuera de main: **640 tests + 246 subtests** (45.12 s), docs
+  aprobadas. Esta prueba cubre convivencia, no revisión B ni bot/IA reales.
 
 ## Cierre por entrega
 
@@ -44,7 +48,7 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A4 | Contratos, preflight, fixtures, límites/cleanup, Docker/RIE | Integrada/probada para fixtures. Helper age/sesiones reales y fuentes autorizadas siguen pendientes; F6 completo no se deduce solo del incremento A4 |
 | A0g | Alcance general coherente, glosario/plan, tests | Candidato documental `d38416b` listo; revisión/integración pendientes |
 | A12 | Polling durable, takeover explícito, reutilizar webhook; prueba propietario/bot real | Candidato `11bf9ba`: coordinador comprobó 52/52 área y suite 588 + 238 subtests (34.94 s), docs/diff verdes. Vault/factory/tick reales, revisión B e integración pendientes; no conectado al bot real |
-| A6 | Router general tipado, registro, budgets, confirm/correct/cancel, callbacks; tests | Preparación aislada; entrega, revisión schema/prompt por B y cableado webhook todavía pendientes |
+| A6 | Router general tipado, registro, budgets, confirm/correct/cancel, callbacks; tests | Candidato `5640f3b`: implementador verificó 52 área/588 + 246 subtests. Coordinador Node229/229/23schemas y combinación A12+A6 640 + 246. Vault cifrado real, B/schema/prompt, webhook, ejecutores e integración pendientes |
 | A8 | Fuentes web/social generales por capacidades, preflight, lectura/dedupe/evidencia | No implementada en main. Cashea opcional; no limitar a talleres. Cada adaptador requiere pruebas/capacidades, no una lista de redes |
 | A7 | Descubrimiento/contacto/seguimiento genéricos, aprobaciones y comparación cuando aplica | No implementada; depende A6/A8 y gate Go. Cotización es plantilla opcional; silencio no es precio cero |
 | A9 | Investigación con citas/cobertura/costo y formato solicitado; PDF opcional | No implementada; requiere búsqueda autorizada, decisión de proveedor/costo y pruebas de citas/fallos; PDF sólo si solicitado |
