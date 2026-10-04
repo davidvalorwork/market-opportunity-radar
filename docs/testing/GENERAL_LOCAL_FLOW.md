@@ -151,6 +151,13 @@ el host: **no es síntesis contextual automática fundamentada**. A18 es la piez
 de enriquecimiento/reasoner pendiente de integrar. Un handler host puede
 conectarla: `(runtime, authority, run_ref, task_ref, step, outputs)` →
 `(private_result_dict, state, static_reason)`. No gana permiso por estar registrado.
+El checkpoint sólo acepta `succeeded`, `partial`, `pending`, `awaiting_approval`
+o `blocked`; cualquier otro estado, incluido `uncertain`, queda bloqueado con
+código fijo y nunca termina en éxito. También se bloquean checkpoints previos
+con estados desconocidos. Las causas deben ser tokens `[a-z][a-z0-9_]{0,63}`
+o `None`: un texto externo bruto se reemplaza por `handler_reason_invalid`.
+La forma del token no demuestra ausencia de PII: el plugin confiable sigue
+obligado a usar un catálogo de causas estáticas, no datos privados codificados.
 Extracción de campos solicitados arbitrarios tampoco está implementada: el
 paso `extract` informa `partial`, no inventa resultados.
 

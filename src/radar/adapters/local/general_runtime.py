@@ -9,6 +9,7 @@ from datetime import timedelta
 from decimal import Decimal
 from hashlib import sha256
 import json
+import re
 from uuid import uuid4
 
 from radar.adapters.sources.generic import ReadRequest
@@ -27,6 +28,32 @@ from .sqlite import stamp, parse
 
 class GeneralError(ValueError):
     """Static diagnostics only, never external exception strings."""
+
+
+RESULT_STATES=frozenset({'succeeded','partial','pending','awaiting_approval','blocked'})
+CONTROL_REASON=re.compile(r'[a-z][a-z0-9_]{0,63}')
+
+
+def control_reason(value):
+    return value if type(value) is str and CONTROL_REASON.fullmatch(value) else 'handler_reason_invalid'
+
+
+def checked_step_result(value):
+    """Host results cannot introduce a new lifecycle or raw diagnostic text.
+
+    Token syntax is not a content classifier: trusted plugins still must return
+    predefined static reasons, never private text disguised as a valid token.
+    """
+    if not isinstance(value,(tuple,list)) or len(value)!=3:
+        return {},'blocked','handler_result_invalid'
+    result,state,reason=value
+    if type(state) is not str or state not in RESULT_STATES:
+        return {},'blocked','handler_state_invalid'
+    if reason is not None and (type(reason) is not str or not CONTROL_REASON.fullmatch(reason)):
+        return {},'blocked','handler_reason_invalid'
+    if type(result) is not dict:
+        return {},'blocked','handler_result_invalid'
+    return result,state,reason
 
 
 DDL = """
@@ -195,7 +222,7 @@ class GeneralRuntime:
                 with self.store.transaction():
                     self.store.db.execute("UPDATE general_inputs SET state='done',task=?,reason=NULL WHERE owner=? AND ref=?", (task_ref, owner, input_ref))
             except (ConditionalConflict, GeneralError,TaskError) as error:
-                code = str(error) if isinstance(error,(GeneralError,TaskError)) else 'authority_or_state_denied'
+                code = control_reason(str(error)) if isinstance(error,(GeneralError,TaskError)) else 'authority_or_state_denied'
                 if self.store.is_current(owner_ref=owner,lease=lease,now=self.clock.now()):
                     self.store.db.execute("UPDATE general_inputs SET state='blocked',reason=? WHERE owner=? AND ref=?", (code, owner, input_ref))
             except Exception:
@@ -272,7 +299,7 @@ class GeneralRuntime:
     def _live_run(self, owner, actor, run):
         authority = self.authority(owner, actor)
         row = self.store.db.execute('SELECT task,status,hash,deadline,calls,budget,pointer,occurrence,intent FROM general_runs WHERE owner=? AND actor=? AND ref=?', (owner, actor, run)).fetchone()
-        if row is None or row[1] == 'cancelled' or parse(row[3]) <= self.clock.now():
+        if row is None or row[1] in ('cancelled','blocked') or parse(row[3]) <= self.clock.now():
             raise GeneralError('run_inactive_or_expired')
         if row[7]:
             firing = self.store.db.execute('SELECT occurrence,binding FROM general_firings WHERE owner=? AND run=?',(owner,run)).fetchone()
@@ -340,6 +367,12 @@ class GeneralRuntime:
                                 else:
                                     self.store.db.execute("UPDATE general_steps SET state='pending',reason='recovered_read' WHERE owner=? AND run=? AND id=?", (owner, run, step_id))
                                 states[step_id] = 'blocked' if operation in ('contact','follow','schedule','compose') else 'pending'
+                        # Old/imported checkpoints are not allowed to turn an
+                        # unknown state such as uncertain into terminal success.
+                        for step_id,state in tuple(states.items()):
+                            if state not in RESULT_STATES:
+                                self.store.db.execute("UPDATE general_steps SET state='blocked',reason='step_state_invalid' WHERE owner=? AND run=? AND id=?",(owner,run,step_id))
+                                states[step_id]='blocked'
                         selected = next((step for step in request['steps'] if states[step['step_id']] == 'pending' and all(states[p] in ('succeeded','partial') for p in step.get('depends_on', ()))
                                          and parse(next(s[4] for s in steps if s[0] == step['step_id'])) <= self.clock.now()), None)
                         if selected is None:
@@ -357,7 +390,7 @@ class GeneralRuntime:
                         self.store.db.execute("UPDATE general_runs SET status='running',calls=calls+1,version=version+1 WHERE owner=? AND ref=?", (owner, run))
                         attempt = previous[3] + 1
                     self.store.failpoint('general_step_claimed')
-                    result, state, reason = self.execute(authority, run, row[0], selected, request, self.outputs(owner, run), attempt)
+                    result, state, reason = checked_step_result(self.execute(authority, run, row[0], selected, request, self.outputs(owner, run), attempt))
                     with self.store.transaction():
                         self._live_run(owner, actor, run)
                         if not self.store.is_current(owner_ref=owner, lease=lease, now=self.clock.now()):
@@ -369,7 +402,7 @@ class GeneralRuntime:
             except (GeneralError,ConditionalConflict,TaskError,ConversationError,ContactError,ReportError,ScheduleDenied) as error:
                 # A stale worker must not clobber a successor's committed run.
                 if self.store.is_current(owner_ref=owner,lease=lease,now=self.clock.now()):
-                    self.store.db.execute("UPDATE general_runs SET status='blocked',reason=? WHERE owner=? AND ref=?", (str(error) if isinstance(error,GeneralError) else 'authority_or_state_denied', owner, run))
+                    self.store.db.execute("UPDATE general_runs SET status='blocked',reason=? WHERE owner=? AND ref=?", (control_reason(str(error)) if isinstance(error,GeneralError) else 'authority_or_state_denied', owner, run))
             finally:
                 self.store.release(owner_ref=owner, lease=lease)
         self.deliver(owner, actor)
