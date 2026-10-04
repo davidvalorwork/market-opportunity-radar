@@ -7,7 +7,7 @@ import json
 from radar.domain.core import utc
 from radar.ports.types import StructuredRequest
 from .models import Budget, Plan, TaskError, canonical, content_hash
-from .prompt import PROMPT_VERSION, SCHEMA_NAME
+from .prompt import CONTRACT_NAME, PROMPT_VERSION, SCHEMA_NAME, SCHEMA_VERSION
 from .registry import OperationRegistry
 
 
@@ -31,7 +31,7 @@ class TaskRouter:
         if utc(authority.expires_at) <= utc(now):
             raise TaskError('expired_authority')
         try:
-            self.validate_document(SCHEMA_NAME, document)
+            self.validate_document(CONTRACT_NAME, document)
             request = json.loads(canonical(document))
         except Exception:
             raise TaskError('invalid_request') from None
@@ -110,7 +110,7 @@ class TaskRouter:
         cached = self.repository.claim_parse(authority=authority, event_ref=event_ref, input_hash=fingerprint,
                                              context_refs=frozen_refs, max_cost=max_cost, now=now)
         if cached is None:
-            request = StructuredRequest(SCHEMA_NAME, 1, self.model_ref, PROMPT_VERSION, fingerprint, 'es',
+            request = StructuredRequest(SCHEMA_NAME, SCHEMA_VERSION, self.model_ref, PROMPT_VERSION, fingerprint, 'es',
                                         'personal' if frozen_refs else 'public', input_text, 2048, max_cost)
             try:
                 output = self.parser.generate(owner_ref=authority.owner_ref, request=request)

@@ -3,7 +3,8 @@
 Estado: **implementado y probado localmente en rama aislada; revisión B del
 schema y cableado de Telegram pendientes**. No ejecuta búsquedas, lecturas,
 mensajes, follows ni programaciones reales. No llama IA, cuentas o cloud en estas
-pruebas. El parser usado en tests es falso, no una prueba de IA real.
+pruebas. Los casos originales usan parser falso; A22 añade el cliente B real con
+HTTP/secretos/caché sintéticos, sin consultar IA real.
 
 La dirección general vigente autoriza pedidos de cualquier tema; productos son
 un caso opcional. No se requieren vehículo, zona, pago, Cashea, taller ni PDF.
@@ -108,6 +109,43 @@ a confirmar reserva de nuevo. No afirmar costo USD 0 de infraestructura ni IA.
 por defecto, configurable mediante allowlist). No analiza cron, calcula próximas
 fechas ni crea un timer real. Su backend futuro debe validar calendario/DST y
 planificar sólo operaciones conocidas con presupuestos y permisos por pasada.
+
+## A22: compatibilidad local del parser con el cliente B
+
+La revisión A21 encontró dos fallos determinísticos: el puerto recibía
+`llm.task_request.v1` más versión `1` y B buscaba el inexistente
+`llm.task_request.v1.v1`; además su inliner sólo conoce definiciones de
+`common.v1` y rechazaba los `$ref` locales de este candidato.
+Las dos regresiones originales fallaron antes del cambio y pasaron después.
+
+El [prompt](../../src/radar/application/tasks/prompt.py) separa ahora
+`SCHEMA_NAME = llm.task_request`, `SCHEMA_VERSION = 1` para `StructuredRequest`
+y `CONTRACT_NAME = llm.task_request.v1` para validación local. El nuevo schema
+candidato tiene las definiciones locales inline; mantiene refs comunes,
+privacidad condicionada, campos opcionales, objetos cerrados, patrones y límites.
+No modifica contratos publicados, el cliente B ni su catálogo predeterminado.
+
+[Las regresiones](../../tests/tasks/test_router.py) usan `OpenRouterLLM` real,
+`Prompt` inyectado y HTTP falso con clave sintética. Comprueban interpretación,
+replay sin otra llamada, expansión sin refs pendientes, todos los golden válidos
+y negativos, costo Decimal conocido, campos extra rechazados, ZDR/personal,
+referencias privadas ligadas al owner y ausencia de efectos. Constructor B
+apagado y catálogo B sin este prompt rechazan antes de secretos/caché/HTTP.
+JSON inválido, usage ausente y timeout conservan la reserva e incertidumbre,
+sin nueva propuesta ni reintento del modelo.
+
+Esto verifica compatibilidad **local**, no aceptación de un endpoint real.
+El candidato conserva opcionales y condicionales JSON Schema; generar
+`response_format.json_schema.strict = true` con FakeHTTP no demuestra soporte
+de esos keywords por un proveedor. Registro B, modelo/endpoints con salida
+estructurada/ZDR, política personal, precios vigentes y evaluación semántica
+siguen sujetos a revisión y autorización. No hay factory de producto activado.
+
+Verificación A22 sobre base A6 `5640f3b`, sin Docker/red: **70/70** área;
+área + contratos **78 tests + 228 subtests**; suite completa **606 tests +
+246 subtests**, sin skips/fallos. `check_docs.py` y `git diff --check` aprobados.
+La guía de diagnóstico exigió las regresiones rojas antes del arreglo;
+no se modificaron fakes o guardas B para convertir los fallos en verde.
 
 ## Verificación observada y reproducción
 

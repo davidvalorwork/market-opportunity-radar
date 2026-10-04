@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
+from pathlib import Path
 from threading import Barrier
 
 import pytest
@@ -112,6 +113,202 @@ def parsed_router(setup, doc, **changes):
     parser = FakeParser(replace(output, **changes))
     router = TaskRouter(setup[1], validate_document=contracts.validate, parser=parser, parser_enabled=True, clock=clock)
     return router, parser, clock
+
+
+class RouterHTTP:
+    """Synthetic provider boundary; the OpenRouter client itself stays real."""
+    def __init__(self, document, *, malformed=False, missing_usage=False, error=None):
+        self.document, self.malformed, self.missing_usage, self.error = document, malformed, missing_usage, error
+        self.calls = []
+
+    def __call__(self, url, data, headers, timeout):
+        self.calls.append(json.loads(data))
+        if self.error is not None:
+            raise self.error
+        payload = {'choices': [{'message': {'content': '{invalid' if self.malformed else json.dumps(self.document)}}]}
+        if not self.missing_usage:
+            payload['usage'] = {'prompt_tokens': 20, 'completion_tokens': 40}
+        return 200, {}, json.dumps(payload).encode()
+
+
+class RouterSecrets:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, *, owner_ref, secret_ref):
+        from radar.ports.types import SecretValue
+        self.calls.append((owner_ref, secret_ref))
+        return SecretValue(b'sk-SYNTHETIC-offline-task-router-key')
+
+
+class RouterCache:
+    def __init__(self):
+        self.items, self.calls = {}, []
+
+    def get(self, key):
+        self.calls.append(key)
+        return self.items.get(key)
+
+    def put(self, key, result):
+        self.items[key] = result
+
+
+def real_client_router(setup, doc, *, enabled=True, registered=True, **response):
+    from radar.adapters.openrouter.client import OpenRouterLLM, Prompt
+    clock, secrets, cache = Clock(), RouterSecrets(), RouterCache()
+    http = RouterHTTP(doc, **response)
+    kwargs = {'prompts': {PROMPT_VERSION: Prompt(SYSTEM_PROMPT, 'llm.task_request', 1)}} if registered else {}
+    if enabled is not None:
+        kwargs['enabled'] = enabled
+    client = OpenRouterLLM(secrets=secrets, cache=cache, clock=clock,
+        prices={'fixture/task-parser': (Decimal('0.001'), Decimal('0.002'))},
+        transport=http, allowed_models=('fixture/task-parser',), price_cap=True, **kwargs)
+    router = TaskRouter(setup[1], validate_document=contracts.validate, parser=client, parser_enabled=True, clock=clock)
+    return router, client, http, secrets, cache
+
+
+def test_real_b_client_router_interpret_and_replay(setup):
+    router, client, http, secrets, cache = real_client_router(setup, document())
+    proposal = router.interpret(authority=setup[3], event_ref='event:real_client', now=NOW, public_text='Explica astronomía')
+    assert proposal.status == 'proposed' and proposal.confirmation_hash is None
+    assert len(http.calls) == len(secrets.calls) == 1
+    body = http.calls[0]
+    assert body['response_format']['json_schema']['name'] == 'llm_task_request_v1'
+    assert body['response_format']['json_schema']['strict'] is True
+    assert body['provider']['require_parameters'] is True and 'tools' not in body
+    repeated = router.interpret(authority=setup[3], event_ref='event:real_client', now=NOW, public_text='Explica astronomía')
+    assert repeated.replayed and repeated.task_ref == proposal.task_ref
+    assert len(http.calls) == len(secrets.calls) == len(cache.calls) == 1
+    assert setup[0].db.execute('SELECT count(*) FROM ledger').fetchone()[0] == 0
+    assert setup[0].db.execute('SELECT count(*) FROM outbox').fetchone()[0] == 0
+
+
+def test_candidate_schema_expands_in_real_b_inliner():
+    from radar.adapters.openrouter.client import provider_schema
+    expanded = provider_schema('llm.task_request.v1')
+
+    def assert_no_refs(node):
+        if isinstance(node, dict):
+            assert '$ref' not in node
+            for value in node.values():
+                assert_no_refs(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_no_refs(value)
+
+    assert_no_refs(expanded)
+    assert expanded['properties']['schema_version'] == {'const': 1}
+
+
+@pytest.mark.parametrize('golden', sorted((Path(__file__).resolve().parents[2] / 'contracts/examples/valid/llm.task_request.v1').glob('*.json')), ids=lambda path: path.stem)
+def test_candidate_golden_with_real_b_client(setup, golden):
+    from jsonschema import Draft202012Validator
+    from radar.adapters.openrouter.client import provider_schema
+    from radar.ports.types import StructuredRequest
+    doc = json.loads(golden.read_text(encoding='utf-8'))
+    contracts.validate('llm.task_request.v1', doc)
+    Draft202012Validator(provider_schema('llm.task_request.v1')).validate(doc)
+    _, client, http, secrets, _ = real_client_router(setup, doc)
+    payload = canonical({'public_text': 'SYNTHETIC general request', 'context_refs': doc.get('context_refs', [])})
+    request = StructuredRequest(SCHEMA_NAME, 1, 'fixture/task-parser', PROMPT_VERSION,
+        sha256(payload.encode()).hexdigest(), 'es', doc['privacy_scope'], payload, 2048, Decimal('0.02'))
+    result = client.generate(owner_ref=setup[3].owner_ref, request=request)
+    assert result.document == doc and result.cost is not None and result.cost >= 0
+    assert len(http.calls) == len(secrets.calls) == 1
+    assert len(canonical(http.calls[0]).encode()) < 32768
+    if doc['privacy_scope'] == 'personal':
+        assert http.calls[0]['provider']['zdr'] is True
+        assert http.calls[0]['provider']['data_collection'] == 'deny'
+
+
+@pytest.mark.parametrize('golden', sorted((Path(__file__).resolve().parents[2] / 'contracts/examples/invalid/llm.task_request.v1').glob('*.json')), ids=lambda path: path.stem)
+def test_candidate_invalid_golden_rejected_by_real_b_client(setup, golden):
+    from radar.adapters.openrouter.client import UncertainOutput
+    from radar.ports.types import StructuredRequest
+    doc = json.loads(golden.read_text(encoding='utf-8'))
+    _, client, http, secrets, cache = real_client_router(setup, doc)
+    payload = 'SYNTHETIC general request'
+    request = StructuredRequest(SCHEMA_NAME, 1, 'fixture/task-parser', PROMPT_VERSION,
+        sha256(payload.encode()).hexdigest(), 'es', 'personal', payload, 2048, Decimal('0.02'))
+    with pytest.raises(UncertainOutput):
+        client.generate(owner_ref=setup[3].owner_ref, request=request)
+    assert len(http.calls) == len(secrets.calls) == 1 and cache.items == {}
+
+
+@pytest.mark.parametrize('enabled,registered,error', [
+    (None, True, 'LLMDisabled'), (True, False, 'InvalidRequest')
+])
+def test_real_b_default_gates_before_secrets_cache_or_http(setup, enabled, registered, error):
+    from radar.adapters.openrouter import client as client_module
+    from radar.ports.types import StructuredRequest
+    _, client, http, secrets, cache = real_client_router(setup, document(), enabled=enabled, registered=registered)
+    payload = 'SYNTHETIC public question'
+    request = StructuredRequest(SCHEMA_NAME, 1, 'fixture/task-parser', PROMPT_VERSION,
+        sha256(payload.encode()).hexdigest(), 'es', 'public', payload, 2048, Decimal('0.02'))
+    with pytest.raises(getattr(client_module, error)):
+        client.generate(owner_ref=setup[3].owner_ref, request=request)
+    assert http.calls == secrets.calls == cache.calls == []
+    assert cache.items == {}
+
+
+@pytest.mark.parametrize('response', [
+    {'malformed': True}, {'missing_usage': True},
+    {'error': TimeoutError('PRIVATE_PROVIDER_FAILURE_SYNTHETIC')}
+])
+def test_real_b_response_uncertainty_never_replays_model(setup, response, caplog):
+    router, _, http, secrets, cache = real_client_router(setup, document(), **response)
+    with pytest.raises(TaskError, match='^parser_failed$'):
+        router.interpret(authority=setup[3], event_ref='event:uncertain_b', now=NOW, public_text='tema')
+    with pytest.raises(ConditionalConflict, match='^parser_inflight_or_uncertain$'):
+        router.interpret(authority=setup[3], event_ref='event:uncertain_b', now=NOW, public_text='tema')
+    assert len(http.calls) == len(secrets.calls) == 1 and cache.items == {}
+    assert setup[0].db.execute('SELECT count(*) FROM task_router_proposals').fetchone()[0] == 0
+    assert setup[0].db.execute('SELECT count(*) FROM task_router_reservations').fetchone()[0] == 1
+    assert 'PRIVATE_PROVIDER_FAILURE_SYNTHETIC' not in caplog.text
+
+
+def test_real_b_client_private_reference_only_and_zdr(setup, caplog):
+    ref = private_ref(setup[0], setup[3].owner_ref)
+    doc = document()
+    doc.update(privacy_scope='personal', context_refs=[ref])
+    router, _, http, _, _ = real_client_router(setup, doc)
+    proposal = router.interpret(authority=setup[3], event_ref='event:personal_b', now=NOW, context_refs=(ref,))
+    assert proposal.document['request']['context_refs'] == [ref]
+    assert proposal.confirmation_hash is None
+    body = http.calls[0]
+    assert body['provider']['zdr'] is True and body['provider']['data_collection'] == 'deny'
+    assert 'synthetic opaque ciphertext' not in canonical(body) + caplog.text
+    with pytest.raises(ConditionalConflict, match='^private_reference_scope$'):
+        router.interpret(authority=setup[4], event_ref='event:foreign_b', now=NOW, context_refs=(ref,))
+    assert len(http.calls) == 1
+
+
+def test_real_b_client_rejects_schema_invalid_output_without_proposal_or_retry(setup):
+    doc = document()
+    doc['authorized'] = True
+    router, _, http, _, _ = real_client_router(setup, doc)
+    with pytest.raises(TaskError, match='^parser_failed$'):
+        router.interpret(authority=setup[3], event_ref='event:authority_b', now=NOW, public_text='tema')
+    with pytest.raises(ConditionalConflict, match='^parser_inflight_or_uncertain$'):
+        router.interpret(authority=setup[3], event_ref='event:authority_b', now=NOW, public_text='tema')
+    assert len(http.calls) == 1
+    assert setup[0].db.execute('SELECT count(*) FROM task_router_proposals').fetchone()[0] == 0
+
+
+def test_real_b_port_and_local_contract_names_are_distinct(setup):
+    from radar.application.tasks.prompt import CONTRACT_NAME, SCHEMA_VERSION
+    observed = []
+
+    def validate(name, document):
+        observed.append(name)
+        contracts.validate(name, document)
+
+    router, _, http, _, _ = real_client_router(setup, document())
+    router.validate_document = validate
+    router.interpret(authority=setup[3], event_ref='event:names_b', now=NOW, public_text='tema')
+    assert SCHEMA_NAME == 'llm.task_request' and SCHEMA_VERSION == 1
+    assert observed and set(observed) == {CONTRACT_NAME} == {'llm.task_request.v1'}
+    assert http.calls[0]['response_format']['json_schema']['name'] == CONTRACT_NAME.replace('.', '_')
 
 
 @pytest.mark.parametrize('topic', ['astronomía', 'organizar un viaje', 'buscar información pública', 'redactar una carta', 'productos'])

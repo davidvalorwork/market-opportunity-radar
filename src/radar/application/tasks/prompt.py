@@ -1,6 +1,8 @@
-"""Candidate prompt registration for B; fake/injected parser only in A6."""
+"""Candidate B registration; live prompt/model review is still required."""
 PROMPT_VERSION = 'task-request-v1'
-SCHEMA_NAME = 'llm.task_request.v1'
+SCHEMA_NAME = 'llm.task_request'
+SCHEMA_VERSION = 1
+CONTRACT_NAME = f'{SCHEMA_NAME}.v{SCHEMA_VERSION}'
 SYSTEM_PROMPT = (
     'Interpreta un pedido sobre cualquier tema como pasos registrados, no lo ejecutes. '
     'Operaciones: search, read, extract, inform, compose, contact, follow, schedule. '
