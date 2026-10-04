@@ -6,11 +6,12 @@ import gzip
 from hashlib import sha256
 import json
 from uuid import uuid4
+from urllib.parse import urlsplit, urlunsplit
 import zlib
 
 from radar.application.research.cache import (
     MAX_PAGE_BYTES, CacheBinding, CacheError, CachePolicy, CacheRecord, CachedRecord,
-    CacheView, PageResult, Reservation, canonical_url, fingerprint, opaque,
+    CacheView, PageResult, Reservation, fingerprint, opaque,
 )
 from radar.domain.core import utc
 from radar.ports.types import BlobPointer
@@ -18,6 +19,27 @@ from .sqlite import parse, stamp
 
 
 MAX_FRAME = 1047552
+
+
+def canonical_url(url):
+    """Conservative adapter-bound identity, NOT fetch/SSRF authorization."""
+    try:
+        if not isinstance(url, str) or not 1 <= len(url.encode()) <= 8192 or any(ord(c) <= 32 for c in url):
+            raise ValueError()
+        parts = urlsplit(url)
+        if parts.scheme.lower() not in ('http', 'https') or not parts.hostname or parts.username or parts.password:
+            raise ValueError()
+        host = parts.hostname.encode('idna').decode().lower()
+        if ':' in host:
+            host = '[' + host + ']'
+        port = parts.port
+        if port is not None and port != (443 if parts.scheme.lower() == 'https' else 80):
+            host += ':' + str(port)
+        return urlunsplit((parts.scheme.lower(), host, parts.path or '/', parts.query, ''))
+    except (ValueError, UnicodeError):
+        raise CacheError('invalid_cache_url') from None
+
+
 DDL = '''
 CREATE TABLE IF NOT EXISTS research_cache_streams(owner TEXT,ref TEXT,binding TEXT,version INTEGER,active_pass TEXT,expires TEXT,cursor TEXT,cursor_hash TEXT,report TEXT,report_hash TEXT,position INTEGER DEFAULT 0,report_expires TEXT,PRIMARY KEY(owner,ref));
 CREATE TABLE IF NOT EXISTS research_cache_passes(owner TEXT,ref TEXT,cache TEXT,mode TEXT,policy TEXT,inspected INTEGER DEFAULT 0,skipped INTEGER DEFAULT 0,new INTEGER DEFAULT 0,pages INTEGER DEFAULT 0,requests INTEGER DEFAULT 0,bytes INTEGER DEFAULT 0,PRIMARY KEY(owner,ref));
@@ -348,6 +370,36 @@ class SQLiteResearchCache:
                 raise CacheError('unknown_cache_request')
             self.store.db.execute('UPDATE research_cache_streams SET version=version+1 WHERE owner=? AND ref=?', (row[0], row[1]))
             return self._view(self._row(binding), now)
+
+    def recover_page(self, binding, *, pass_ref, request_ref, now):
+        """Recover committed refs after host-checkpoint crash, without I/O.
+
+        A receipt proves neither current authority nor permission to reissue an
+        uncertain request. Missing receipts return None without reserving quota.
+        """
+        self._check(binding, now)
+        opaque(pass_ref)
+        opaque(request_ref)
+        with self.store.transaction():
+            self._check(binding, now)
+            request = self.store.db.execute('SELECT * FROM research_cache_requests WHERE owner=? AND ref=?',
+                                            (binding.owner_ref, request_ref)).fetchone()
+            if request is None:
+                return None
+            row = self._row(binding)
+            if row[4] != pass_ref:
+                raise CacheError('cache_pass_replay_mismatch')
+            if parse(row[5]) <= now:
+                raise CacheError('cache_expired_refresh_required')
+            if request[2:4] != (row[1], pass_ref):
+                raise CacheError('cache_request_replay_mismatch')
+            if request[5] != 'committed':
+                raise CacheError('cache_request_uncertain')
+            records = tuple(self._record(binding.owner_ref, ref) for ref in json.loads(request[7]))
+            if any(record.expires_at <= now for record in records):
+                raise CacheError('stale_cached_record')
+            self._check(binding, now)
+            return PageResult(records, self._view(row, now), True)
 
     def lookup(self, binding, *, url, now, mode='continue'):
         """None means missing/stale/refresh, never authority to fetch."""

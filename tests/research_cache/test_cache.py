@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from radar.adapters.local.research_cache import MAX_FRAME, SQLiteResearchCache
-from radar.application.research.cache import CacheBinding, CacheError, CachePolicy, canonical_url, fingerprint
+from radar.adapters.local.research_cache import MAX_FRAME, SQLiteResearchCache, canonical_url
+from radar.application.research.cache import CacheBinding, CacheError, CachePolicy, fingerprint
 from .conftest import NOW, OWNER, ACTOR, opened, page, policy, record
 
 
@@ -292,3 +292,47 @@ def test_refresh_rechecks_content_without_duplicate_ciphertext(harness):
 def test_invalid_budget_fails_closed(change):
     with pytest.raises(CacheError, match='invalid_cache_budget'):
         policy(**change)
+
+
+def test_recover_committed_page_after_host_checkpoint_crash(harness):
+    h = harness
+    assert h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:absent', now=NOW) is None
+    opened(h, rules=policy(max_items=1))
+    original = page(h, (record('one'), record('two')))
+    count = len(list(h.config['root'].glob('*.age')))
+    h.restart()  # host checkpoint not recorded, same trusted request ID retried
+    recovered = h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:first', now=NOW)
+    assert recovered.replayed and recovered.records == original.records
+    assert recovered.view == original.view and recovered.view.state == 'item_limit'
+    assert len(list(h.config['root'].glob('*.age'))) == count
+    assert h.cache.read_record(h.binding, record_ref=recovered.records[0].record_ref, now=NOW) == record('one')
+    assert h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:absent', now=NOW) is None
+    assert h.cache.current(h.binding, now=NOW) == original.view
+
+
+def test_recover_reserved_or_uncertain_never_reissues_io(harness):
+    h = harness
+    start = opened(h)
+    reservation = h.cache.reserve(h.binding, pass_ref='pass:first', request_ref='request:first', expected_version=start.version, now=NOW)
+    for abandon in (False, True):
+        if abandon:
+            h.cache.abandon(h.binding, request_ref='request:first', expected_version=reservation.view.version, now=NOW)
+        before = h.cache.current(h.binding, now=NOW)
+        with pytest.raises(CacheError, match='cache_request_uncertain'):
+            h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:first', now=NOW)
+        assert h.cache.current(h.binding, now=NOW) == before
+
+
+def test_recover_revalidates_authority_binding_and_expiry(harness):
+    h = harness
+    opened(h, rules=policy(retention_seconds=5))
+    page(h, (record(),))
+    with pytest.raises(CacheError, match='pass_replay_mismatch'):
+        h.cache.recover_page(h.binding, pass_ref='pass:other', request_ref='request:first', now=NOW)
+    with pytest.raises(CacheError, match='unknown_cache_binding'):
+        h.cache.recover_page(replace(h.binding, task_ref='task:other'), pass_ref='pass:first', request_ref='request:first', now=NOW)
+    with pytest.raises(CacheError, match='expired_refresh_required'):
+        h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:first', now=NOW+timedelta(seconds=5))
+    h.allowed[0] = False
+    with pytest.raises(CacheError, match='cache_access_denied'):
+        h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:first', now=NOW)

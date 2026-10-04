@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
 import re
-from urllib.parse import urlsplit, urlunsplit
 
 from radar.domain.core import utc
 from radar.ports.types import BlobPointer
@@ -31,25 +30,6 @@ def fingerprint(owner_ref, value):
         digest.update(len(part).to_bytes(8, 'big'))
         digest.update(part)
     return digest.hexdigest()
-
-
-def canonical_url(url):
-    """Conservative identity normalization, NOT a fetch/SSRF permission check."""
-    try:
-        if not isinstance(url, str) or not 1 <= len(url.encode()) <= 8192 or any(ord(c) <= 32 for c in url):
-            raise ValueError()
-        parts = urlsplit(url)
-        if parts.scheme.lower() not in ('http', 'https') or not parts.hostname or parts.username or parts.password:
-            raise ValueError()
-        host = parts.hostname.encode('idna').decode().lower()
-        if ':' in host:
-            host = '[' + host + ']'
-        port = parts.port
-        if port is not None and port != (443 if parts.scheme.lower() == 'https' else 80):
-            host += ':' + str(port)
-        return urlunsplit((parts.scheme.lower(), host, parts.path or '/', parts.query, ''))
-    except (ValueError, UnicodeError):
-        raise CacheError('invalid_cache_url') from None
 
 
 @dataclass(frozen=True)
@@ -103,7 +83,11 @@ class CacheRecord:
     observed_at: datetime
 
     def __post_init__(self):
-        canonical_url(self.url)
+        try:
+            if not isinstance(self.url, str) or not 1 <= len(self.url.encode()) <= 8192 or any(ord(c) <= 32 for c in self.url):
+                raise ValueError()
+        except (ValueError, UnicodeError):
+            raise CacheError('invalid_cache_url') from None
         utc(self.observed_at)
         if not isinstance(self.content, bytes) or len(self.content) > MAX_PAGE_BYTES:
             raise CacheError('cache_record_limit')

@@ -35,6 +35,10 @@ Operaciones, con `binding` posicional y los demás argumentos por nombre:
   volver a consultar la fuente; no se permite durante una petición en curso.
 - `abandon(binding, request_ref, expected_version, now)` marca I/O incierto,
   manteniendo bytes reservados como consumidos; no reintenta automáticamente.
+- `recover_page(binding, pass_ref, request_ref, now)` recupera `PageResult`
+  confirmado tras crash antes del checkpoint del host, incluso con cuota de
+  items ya agotada. Revalida autoridad/binding/TTL; recibo ausente devuelve None
+  sin reservar, reservado/incierto falla cerrado. No I/O ni consumo adicional.
 - `seen_url(binding, url, now)` consulta índice fresco antes de que el host
   cree otro blob de A8. `lookup(binding, url, now, mode='continue')` devuelve
   `CachedRecord` fresco o `None`; `None` nunca autoriza un fetch.
@@ -109,10 +113,16 @@ binding, revocación, límites, CAS concurrente, TTL, gzip adversarial y marcado
 privados ausentes en SQLite/WAL/repr. No cuentas/cookies/red/modelos/AWS/Docker.
 El helper se compila con módulos Go ya cacheados, `GOPROXY=off`.
 
-Evidencia de este corte: 35/35 pruebas del área pasan (16.56 s), checker de
-documentación y `git diff --check` verdes. La suite completa con SDK opcional
-obligatorio se inició pero sigue pendiente en la entrega; no se declara su éxito.
-El coordinador hará la validación conjunta antes de integrar.
+Evidencia inicial `600f93b`: 35/35 pruebas del área (16.56 s), checker de
+documentación y diff verdes. La suite completa con SDK obligatorio terminó
+1316 passed +251 subtests y 8 fallos (443.14 s): una importación `urllib.parse`
+en aplicación violaba el guard de capas. Se movió el parsing al adaptador sin
+relajar el guard. Seis fallos fueron de timezone con `tzdata` ausente en ese
+entorno antiguo; otro fue una aserción de tiempo/requests del puente DNS bajo
+carga. No se modificaron esos módulos ni el entorno. El follow-up verifica
+38 pruebas de caché y 31 de arquitectura, incluidas recuperación de commit
+sin checkpoint del host y recepción incierta sin reintento. El coordinador hará
+la validación completa conjunta; este corte no declara full verde.
 
 No envío, transporte real, GC, métricas de red, cobertura global ni continuación
 NL de un pedido anterior se proclaman operativos por estas pruebas. El host
