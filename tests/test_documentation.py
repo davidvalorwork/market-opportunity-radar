@@ -4,6 +4,7 @@ from copy import deepcopy
 import importlib.util
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +47,17 @@ class DocumentationTests(unittest.TestCase):
 
     def test_repository_local_links_exist(self):
         self.assertEqual(checks.link_errors(ROOT), [])
+
+    def test_private_and_dependency_documents_are_not_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for excluded in (".local", "node_modules", ".auth", ".aws-sam"):
+                private = root / excluded
+                private.mkdir()
+                (private / "private.md").write_text("[private](missing.md)", encoding="utf-8")
+            self.assertEqual(checks.link_errors(root), [])
+            (root / "README.md").write_text("[public](missing.md)", encoding="utf-8")
+            self.assertEqual(len(checks.link_errors(root)), 1)
 
 
 if __name__ == "__main__":

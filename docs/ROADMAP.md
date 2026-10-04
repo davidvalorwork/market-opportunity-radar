@@ -13,6 +13,14 @@ fuente depende de acceso autorizado, capacidad comprobada y fixtures reproducibl
 Criterio: enlaces/configuración/documentación coherentes y repositorio publicado.
 No equivale a un buscador operativo.
 
+## Laboratorio habilitador — entrega local 2026-10-03
+
+Navegador Lambda/RIE con Playwright y OpenCLI, sesiones age con versiones/CAS,
+wrapper de upload/renew explícito y runner de recursos/costos aproximados.
+[Resultados y pruebas negativas](testing/LOCAL_RESULTS.md). Implementación
+experimental con fixtures, no una fase comercial terminada ni soporte de redes
+sociales demostrado. Captura guiada, cuenta de ensayo y canary AWS son posteriores.
+
 ## Fase 1 — Vertical mínima local
 
 - Importar CSV/JSON autorizado y fixtures sintéticos tipados.

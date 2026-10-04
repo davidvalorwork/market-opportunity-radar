@@ -1,0 +1,23 @@
+# Build only the laboratory; never send the full checkout or user data to Docker.
+**
+!lab/
+!lab/**
+lab/**/node_modules/
+lab/**/.local/
+lab/**/.auth/
+lab/**/.sessions/
+lab/**/.browser-profiles/
+lab/**/__pycache__/
+lab/**/*.pyc
+lab/**/*.age
+lab/**/*.agekey
+lab/**/*.key
+lab/**/*.pem
+lab/**/*.sqlite*
+lab/**/*.db
+lab/**/.env*
+lab/**/cookies*.json
+lab/**/storage-state*.json
+lab/**/*credentials*.json
+lab/**/*token*.json
+lab/**/pairing.json

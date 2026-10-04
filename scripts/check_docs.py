@@ -1,6 +1,7 @@
 """Validate the documentation foundation, not a working commerce pipeline."""
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +15,11 @@ REQUIRED = (
     "docs/CONFIGURATION.md", "docs/COST_MODEL.md", "docs/EVALUATIONS.md",
     "docs/ROADMAP.md", "config/radar.example.json",
 )
+EXCLUDED_DOCUMENT_DIRS = {
+    ".git", ".local", ".auth", ".sessions", ".browser-profiles", ".aws-sam",
+    "node_modules", ".venv", "venv", "__pycache__", "artifacts",
+    "playwright-report", "test-results", ".codegraph",
+}
 
 
 def config_errors(config):
@@ -72,9 +78,11 @@ def config_errors(config):
 
 def link_errors(root):
     errors = []
-    for document in root.rglob("*.md"):
-        if ".git" in document.parts:
-            continue
+    documents = []
+    for base, directories, names in os.walk(root):
+        directories[:] = [name for name in directories if name not in EXCLUDED_DOCUMENT_DIRS]
+        documents.extend(Path(base) / name for name in names if name.endswith(".md"))
+    for document in documents:
         text = document.read_text(encoding="utf-8")
         for target in re.findall(r"!?\[[^\]]*\]\(([^\s)]+)\)", text):
             parsed = urlsplit(target)
@@ -99,8 +107,9 @@ def main():
         errors.append("Cannot inspect repository files with Git")
     for entry in listing.stdout.splitlines():
         path = Path(entry)
-        if (any(part in (".local", ".agent-reach", ".codegraph", "node_modules") for part in path.parts)
-                or path.name.startswith(".env") or path.suffix in (".key", ".pem", ".db", ".sqlite")
+        if (any(part in (".local", ".agent-reach", ".codegraph", "node_modules", ".auth",
+                         ".sessions", ".browser-profiles", ".aws-sam") for part in path.parts)
+                or path.name.startswith(".env") or path.suffix in (".key", ".pem", ".db", ".sqlite", ".age", ".agekey")
                 or path.name in ("pairing.json", "credentials.json", "token.json")):
             errors.append(f"Private/generated path must not be versioned: {entry}")
     for error in errors:

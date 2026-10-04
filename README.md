@@ -11,11 +11,12 @@ Global product sourcing and resale intelligence: discover listings across the op
 web and social channels, match equivalent products, and estimate cost-aware margins
 with source evidence. Local-first, configurable and designed around Agent Reach.
 
-**Estado: definición de producto y arquitectura, 2026-10-03.** Este repositorio aún
-no contiene un buscador, comparador, CLI comercial ni dashboard operativo. La
-configuración es una propuesta versionada; los controles documentales sí se pueden
-ejecutar. No hay campañas, compras, ventas, mensajes o ganancias reales generadas
-por este proyecto. No es Job Radar ni una demo de facturas.
+**Estado: arquitectura y laboratorio Docker local, 2026-10-03.** Incluye un
+runner de mediciones, un handler de navegador con fixture sintético y un CLI de
+sesiones cifradas. No contiene todavía un buscador, comparador comercial ni
+dashboard operativo. La configuración del producto sigue siendo una propuesta.
+No hay campañas, compras, ventas, mensajes o ganancias reales generadas por este
+proyecto. No es Job Radar ni una demo de facturas.
 
 ## Qué queremos lograr
 
@@ -136,6 +137,15 @@ de este producto. [Arquitectura](docs/ARCHITECTURE.md) · [Evaluaciones](docs/EV
 
 ## Documentación
 
+- [Reparto de implementación y cierre de coordinación con Claude](docs/testing/WORKPLAN.md).
+- [Resultados Docker, incidencias y límites de costos](docs/testing/LOCAL_RESULTS.md).
+- Laboratorios ejecutables: [navegador Lambda/RIE](lab/browser/README.md)
+  · [sesiones cifradas, intercambio y renovación](lab/sessions/README.md).
+- [Plan de testing local de Lambda y optimización RAM/CPU](docs/LOCAL_LAMBDA_TESTING.md)
+  · [captura, intercambio cifrado y renovación de sesiones](docs/SESSION_MANAGEMENT.md).
+- [Investigación coordinada de redes, sesiones y autonomía](docs/research/README.md)
+  · [prompt para Claude (investigador B)](docs/research/prompt-agent-b.md)
+  · [decisiones y pendientes](docs/research/decisions.md).
 - [Visión, alcance y usuarios](docs/VISION.md).
 - [Lenguaje del dominio](CONTEXT.md).
 - [Fuentes, acceso y evidencia](docs/SOURCES.md).
@@ -147,7 +157,32 @@ de este producto. [Arquitectura](docs/ARCHITECTURE.md) · [Evaluaciones](docs/EV
 - [Roadmap y estado real](docs/ROADMAP.md).
 - [Cómo contribuir a este repositorio](CONTRIBUTING.md).
 
-## Verificar esta primera entrega
+## Ejecutar el laboratorio local
+
+Docker Desktop con Engine Linux, Python 3.11+ y recursos disponibles. Los builds
+descargan dependencias; las mediciones usan contenedores sin red exterior. No
+necesitan cuentas, cookies reales, AWS, modelos ni APIs de IA.
+
+```powershell
+python -m lab.runner --suite sessions --build --memory-mib 128,256 --trials 3
+python -m lab.runner --suite browser --build --mode both --memory-mib 1024,1600,2048 --trials 3 --warm-invocations 1 --batch 3
+```
+
+Cada corrida genera JSONL privado en `.local/reports/`. Un solo contenedor a la
+vez; compara lectura directa y OpenCLI sobre el mismo fixture. Registra RAM peak,
+CPU, tiempos, imagen, errores y cleanup. Mantiene 4 GiB de reserva en el host y
+25% de margen; perfiles sin RAM se registran `skipped_resource`, no como éxitos.
+No borra ni detiene otros contenedores. Los límites Docker no reproducen el CPU,
+networking ni la facturación de AWS.
+
+`--host-reserve-gib` permite configurar explícitamente la reserva (3–16 GiB,
+default 4). Una reducción queda marcada `reduced_reserve_experiment`; no se hace
+automáticamente para conseguir un test aprobado.
+
+`--price-per-gb-second` acepta una tarifa explícita para una aproximación; sin
+ella el costo permanece desconocido. No demuestra factura cero ni rentabilidad.
+
+## Verificar documentación y contratos
 
 Requisitos para comprobar la documentación: Python 3.11+ y Git. No hace falta
 iniciar sesión en redes sociales, instalar modelos ni proporcionar credenciales.
@@ -156,11 +191,15 @@ iniciar sesión en redes sociales, instalar modelos ni proporcionar credenciales
 git clone https://github.com/davidvalorwork/market-opportunity-radar.git
 cd market-opportunity-radar
 python scripts/check_docs.py
+python -m unittest discover -s tests -q
+node --test lab/browser/selftest.mjs
 ```
 
 El control valida enlaces locales, configuración documental, archivos requeridos y
-ausencia de archivos privados versionados. No busca productos ni prueba conectores.
-GitHub Actions ejecuta el mismo control en Windows y Linux.
+ausencia de archivos privados versionados. Los tests Python cubren también el
+runner con Docker simulado; los de Node comprueban contratos sintéticos sin
+dependencias externas. Ninguno reemplaza las pruebas Docker ni prueba redes
+sociales. GitHub Actions ejecuta los controles Python en Windows y Linux.
 
 ## Límites y siguiente entrega
 

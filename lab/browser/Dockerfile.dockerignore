@@ -1,0 +1,11 @@
+# Dockerfile-specific allowlist; no private profiles or unrelated repository data.
+**
+!lab/
+!lab/browser/
+!lab/browser/Dockerfile
+!lab/browser/Dockerfile.dockerignore
+!lab/browser/package.json
+!lab/browser/package-lock.json
+!lab/browser/*.mjs
+!lab/browser/opencli-fixture.js
+!lab/browser/README.md

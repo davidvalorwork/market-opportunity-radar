@@ -2,9 +2,17 @@
 
 ## Estado
 
-Repo documental. No hay autenticación, conectores, servidor ni pruebas de seguridad
-del producto implementadas. Ninguna fuente conectada se supone segura por estar
-mencionada en la arquitectura. No desplegar este diseño como si fuera un servicio.
+Arquitectura más laboratorio local experimental. Hay un servidor fixture en
+loopback, un runner Docker y un CLI age con pruebas sintéticas. No hay autenticación
+multiusuario ni conectores comerciales verificados. Ninguna fuente se supone
+segura por estar mencionada en la arquitectura. No desplegar el laboratorio como
+si fuera un servicio de producción.
+
+Los bundles `.age`, identidades `.agekey` y reportes `.local/` quedan fuera de Git
+y del contexto de build. Los vaults solicitan permisos Linux, pero estos no
+garantizan ACL privadas del host Windows. age protege confidencialidad/integridad;
+no autentica al productor ni revoca copias antiguas. Un import mantiene estado
+`unverified`: no demuestra login vigente. Ver [límites del CLI](lab/sessions/README.md).
 
 ## Reglas de acceso
 

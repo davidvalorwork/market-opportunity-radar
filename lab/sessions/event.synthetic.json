@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "fixture_only": true,
+  "operation": "session_transfer",
+  "alias": "demo-session",
+  "allowed_origin": "http://localhost:8765"
+}

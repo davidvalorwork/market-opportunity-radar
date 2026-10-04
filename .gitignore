@@ -3,6 +3,11 @@
 .env.*
 !.env.example
 .local/
+.sessions/
+.auth/
+playwright/.auth/
+.browser-profiles/
+storage-state*.json
 .agent-reach/
 .codegraph/
 cookies*.json
@@ -11,6 +16,8 @@ cookies*.json
 pairing.json
 *.key
 *.pem
+*.age
+*.agekey
 *.sqlite*
 *.db
 
@@ -27,6 +34,7 @@ venv/
 node_modules/
 dist/
 build/
+.aws-sam/
 playwright-report/
 test-results/
 *.log
