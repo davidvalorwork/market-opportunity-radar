@@ -44,7 +44,8 @@ class LocalRuntime:
     def relay(self, owner_ref):
         cursor = None
         while True:
-            cursor = relay_outbox(self.store,self.queue,owner_ref=owner_ref,now=self.clock.now(),cursor=cursor)
+            cursor = relay_outbox(self.store,self.queue,owner_ref=owner_ref,now=self.clock.now(),cursor=cursor,
+                                  pause_on_capacity=True)
             if cursor is None:
                 break
 

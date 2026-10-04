@@ -253,7 +253,18 @@ mutación, hasta disponer de payload privado/proveedor verificado. No acredita
 conformidad completa A1 ni integración con Go real/AWS. `/stop` es cancelación
 local durable, no Logout en WhatsApp. Los demás comandos B2 se aparcan en una
 cuarentena local durable como `unsupported`; no se presentan como implementados.
-La cuota de cola es por propietario. Cancelación, stop, revocación,
+La cuota de cola es por propietario.
+
+El relay local opta por `pause_on_capacity=True`: la capacidad conocida durante
+publish cede a consumidores y conserva la entrada pendiente sin marcar/ACK.
+En ese modo `None` puede significar pausa, no outbox vacío; la pasada siguiente
+retoma paginación keyset de pendientes. El helper por defecto conserva su
+excepción de capacidad. Errores de almacenamiento, OverflowError genérico,
+mark y failpoints posteriores al publish siguen propagándose. La regresión
+`tests/flow/test_backpressure.py` reprodujo 101 updates aceptados bloqueados
+antes de consumir; ahora prueba límites 1/2/100, FIFO, restart y cuarentena.
+
+Cancelación, stop, revocación,
 consentimiento retirado, deadline y resultado obsoleto se aparcan antes del ACK,
 con IDs, hash y código estático, sin texto privado. La allowlist exacta está en
 `PERMANENT_REJECTIONS`; conflictos desconocidos, almacenamiento y crashes

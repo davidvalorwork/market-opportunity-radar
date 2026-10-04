@@ -17,6 +17,10 @@ PERMANENT_REJECTIONS = frozenset({
 })
 
 
+class QueueCapacity(OverflowError):
+    """Known local backpressure, not a publication/ACK or a storage failure."""
+
+
 class FakeQueue:
     def __init__(self, store, clock, *, capacity=100, visibility=timedelta(seconds=30)):
         if not 1 <= capacity <= 1000 or visibility <= timedelta(0):
@@ -36,7 +40,7 @@ class FakeQueue:
                 return msg
             count = self.store.db.execute('SELECT count(*) FROM queue WHERE owner=? AND acked=0',(owner_ref,)).fetchone()[0]
             if count >= self.capacity:
-                raise OverflowError('queue_capacity')
+                raise QueueCapacity('queue_capacity')
             self.store.db.execute('INSERT INTO queue(owner,msg,destination,entry,visible) VALUES(?,?,?,?,?)',(owner_ref,msg,entry.destination,dumps(entry),stamp(self.clock.now())))
         return msg
 
@@ -101,10 +105,23 @@ class FakeQueue:
         self.store.db.execute('UPDATE queue SET visible=? WHERE owner=? AND destination=? AND acked=0',(stamp(self.clock.now()),owner_ref,destination))
 
 
-def relay_outbox(store, queue, *, owner_ref, now, limit=10, cursor=None, failpoint=lambda stage: None):
+def relay_outbox(store, queue, *, owner_ref, now, limit=10, cursor=None, failpoint=lambda stage: None,
+                 pause_on_capacity=False):
+    """Publish then mark, preserving the default cursor/exception contract.
+
+    Opt-in None also means yield on known capacity, NOT an empty outbox. Only
+    publish backpressure is caught; checkpoints and injected crashes propagate.
+    The next pass starts pending keyset pagination again, without skipping the
+    rejected unpublished entry or acknowledging any delivery on its behalf.
+    """
     page = store.pending(owner_ref=owner_ref,limit=limit,cursor=cursor)
     for entry in page.entries:
-        queue.publish(owner_ref=owner_ref,entry=entry)
+        try:
+            queue.publish(owner_ref=owner_ref,entry=entry)
+        except QueueCapacity:
+            if pause_on_capacity is not True:
+                raise
+            return None
         failpoint('after_publish')
         store.mark_published(owner_ref=owner_ref,message_id=entry.envelope['message_id'],expected_version=entry.version,published_at=now)
     return page.next_cursor
