@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.messages.private.v1.json",
+  "title": "Mensajes privados de whatsapp.sync v1",
+  "description": "PRIVADO: se valida solo tras descifrar el blob de private_ref de whatsapp.result. Nunca en logs, colas, DynamoDB, telemetría ni LLM en claro. El conteo debe igualar message_count del transporte.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "messages"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chat_ref", "text", "observed_at"],
+        "properties": {
+          "chat_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+          "text": {"type": "string", "maxLength": 4096},
+          "observed_at": {"$ref": "common.v1.json#/$defs/utc_datetime"}
+        }
+      }
+    }
+  }
+}

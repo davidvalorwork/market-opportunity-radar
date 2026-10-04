@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/telegram.command.v1.json",
+  "title": "Payload telegram.command v1",
+  "description": "Comando ya autenticado y autorizado por el bot. args es un mapa acotado de strings (nombres y valores limitados), no texto libre ilimitado.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "update_id", "telegram_user_ref", "command", "args"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "update_id": {"type": "integer", "minimum": 0},
+    "telegram_user_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+    "command": {
+      "enum": [
+        "start", "vincular", "buscar", "busquedas", "oportunidades", "pendientes",
+        "resumen", "salud", "pedir", "mis_datos", "borrar", "stop", "callback"
+      ]
+    },
+    "args": {
+      "type": "object",
+      "maxProperties": 8,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+      "additionalProperties": {"type": "string", "maxLength": 256}
+    },
+    "callback_ref": {
+      "description": "callback_data de Telegram: ASCII de 1-64 caracteres = 1-64 bytes. Requerido solo con command=callback.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_:.-]{1,64}$"
+    }
+  },
+  "if": {"properties": {"command": {"const": "callback"}}},
+  "then": {"required": ["callback_ref"]},
+  "else": {"not": {"required": ["callback_ref"]}}
+}

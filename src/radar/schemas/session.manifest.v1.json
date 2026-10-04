@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/session.manifest.v1.json",
+  "title": "Manifiesto de sesión v1",
+  "description": "Metadatos cifrados junto al estado (docs/SESSION_MANAGEMENT.md). Nunca contiene cookies ni claves. renew_after es política local, no expiración garantizada.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "session_ref", "version", "state_type", "created_at",
+    "last_verified_at", "renew_after", "allowed_origins", "allowed_operations", "producer_version"
+  ],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "session_ref": {"$ref": "common.v1.json#/$defs/session_ref"},
+    "version": {"type": "integer", "minimum": 1},
+    "state_type": {"enum": ["playwright_storage_state", "whatsmeow_sqlite"]},
+    "created_at": {"$ref": "common.v1.json#/$defs/utc_datetime"},
+    "last_verified_at": {"anyOf": [{"$ref": "common.v1.json#/$defs/utc_datetime"}, {"type": "null"}]},
+    "renew_after": {"anyOf": [{"$ref": "common.v1.json#/$defs/utc_datetime"}, {"type": "null"}]},
+    "allowed_origins": {
+      "description": "Orígenes https permitidos; al menos uno para playwright_storage_state, puede ir vacío para whatsmeow_sqlite.",
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}(:[0-9]{1,5})?$"}
+    },
+    "allowed_operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$"}
+    },
+    "producer_version": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]{1,128}$"}
+  },
+  "if": {"properties": {"state_type": {"const": "playwright_storage_state"}}},
+  "then": {"properties": {"allowed_origins": {"minItems": 1}}}
+}

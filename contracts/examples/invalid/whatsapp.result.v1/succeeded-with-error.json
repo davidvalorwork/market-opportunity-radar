@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "pairing": {
+    "code_delivered": true
+  },
+  "session_version": 1,
+  "error": {
+    "code": "internal"
+  }
+}

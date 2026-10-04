@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "session_ref": "threads:../research-demo",
+  "version": 3,
+  "state_type": "playwright_storage_state",
+  "created_at": "2026-10-03T12:00:00Z",
+  "last_verified_at": "2026-10-03T12:00:00Z",
+  "renew_after": "2026-10-04T12:00:00Z",
+  "allowed_origins": [
+    "https://www.threads.com"
+  ],
+  "allowed_operations": [
+    "search",
+    "read_post"
+  ],
+  "producer_version": "capture-tool-pinned"
+}

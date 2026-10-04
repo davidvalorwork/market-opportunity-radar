@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "records": [
+    {
+      "fields": {
+        "title": "Fixture fragrance 100 ml",
+        "variant": "100 ml",
+        "condition": "new",
+        "published_price": "60.00",
+        "currency": "USD"
+      },
+      "evidence": {
+        "url": "https://www.example.com/listings/synthetic-1",
+        "observed_at": "2026-10-03T12:00:00Z",
+        "content_hash": "ce2ef41fcdd27214aa8c2c2ad974474295dff6d665d37d7395ec22420b024d3e"
+      }
+    },
+    {
+      "fields": {
+        "title": "Fixture watch model A",
+        "variant": "100 ml",
+        "condition": "new",
+        "published_price": "60.00",
+        "currency": "USD"
+      },
+      "evidence": {
+        "url": "https://www.example.com/listings/synthetic-1",
+        "observed_at": "2026-10-03T12:00:00Z",
+        "content_hash": "ce2ef41fcdd27214aa8c2c2ad974474295dff6d665d37d7395ec22420b024d3e"
+      }
+    }
+  ],
+  "timings": {
+    "init_ms": 900,
+    "execution_ms": 1500,
+    "cleanup_ms": 80,
+    "total_ms": 2480
+  },
+  "versions": {
+    "node": "24.21.0",
+    "playwright": "1.63.0"
+  },
+  "error": {
+    "code": "internal"
+  }
+}

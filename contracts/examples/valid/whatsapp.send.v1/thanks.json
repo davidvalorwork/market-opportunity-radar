@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "recipient_ref": "wacontact:synthetic-seller-1",
+  "approval_ref": "approval:01J9ZX3Q4R5S6T7V8W9XAYBZC3",
+  "content_sha256": "540d5f2b662261c29bb287ccd5d503419dd71fdab5776eca83d985d31947373f",
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/send-01J9ZX3Q4R5S6T7V8W9XAYBZC3.age",
+    "sha256": "20e98350acd472d18c1e74955cd75bd001c3f875b309ceb9f826b0d6910f17d8",
+    "recipient_scope": "worker:whatsapp"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "platforms": {
+    "whatsapp": {
+      "whatsapp_mcp": {
+        "buy": {
+          "status": "documentado",
+          "source": "https://github.com/lharries/whatsapp-mcp",
+          "checked_on": "2026-10-03"
+        }
+      }
+    }
+  }
+}

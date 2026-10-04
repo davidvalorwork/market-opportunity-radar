@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.result.v1.json",
+  "title": "Payload whatsapp.result v1 (transporte)",
+  "description": "Resultado de pair/sync/send. Envío sin prueba durable: failed + send_uncertain (reconciliar, no reintentar). Un resultado de pair siempre incluye pairing; el código nunca tiene campo, solo si fue entregado. Los mensajes sincronizados viajan solo en whatsapp.messages.private.v1 (private_ref); aquí solo el conteo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "status": {"enum": ["succeeded", "failed"]},
+    "error": {"$ref": "common.v1.json#/$defs/error"},
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_delivered"],
+      "properties": {"code_delivered": {"type": "boolean"}}
+    },
+    "message_count": {"type": "integer", "minimum": 0, "maximum": 100},
+    "private_ref": {"$ref": "common.v1.json#/$defs/private_ref", "description": "Blob cifrado con whatsapp.messages.private.v1."},
+    "provider_message_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+    "session_version": {"type": "integer", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "succeeded"}}},
+      "then": {"not": {"required": ["error"]}},
+      "else": {"required": ["error"]}
+    },
+    {
+      "if": {"required": ["message_count"], "properties": {"message_count": {"minimum": 1}}},
+      "then": {"required": ["private_ref"]}
+    }
+  ]
+}

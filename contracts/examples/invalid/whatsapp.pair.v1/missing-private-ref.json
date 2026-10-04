@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "notify": "tgchat:radar-pilot-owner",
+  "method": "code"
+}

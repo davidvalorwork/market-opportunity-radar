@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "enabled_chat_refs": [
+    "wachat:synthetic-seller-1"
+  ],
+  "all_chats": true
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "enabled_chat_refs": [
+    "wachat:synthetic-seller-1",
+    "wachat:synthetic-seller-2"
+  ],
+  "since_cursor": "c:000123"
+}

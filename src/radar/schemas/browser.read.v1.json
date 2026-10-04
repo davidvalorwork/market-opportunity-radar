@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/browser.read.v1.json",
+  "title": "Payload browser.read v1",
+  "description": "Lectura sin efectos por el worker navegador. No acepta cookies, storageState, perfiles ni URL con credenciales; la sesión llega solo como session_ref del sobre. El schema no sustituye los controles DNS/redirect/IP privada en runtime.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability_id", "target", "fixture_only", "mode", "batch", "deadline_ms"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "capability_id": {
+      "description": "plataforma.backend.operación del registro de capacidades.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,31}$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "path"],
+      "properties": {
+        "origin": {
+          "description": "Solo esquema+host[+puerto]. https con hostname DNS (TLD alfabético, sin IP literal); loopback http/https solo con fixture_only.",
+          "type": "string",
+          "maxLength": 300,
+          "anyOf": [
+            {"$ref": "#/$defs/public_origin"},
+            {"$ref": "#/$defs/loopback_origin"}
+          ]
+        },
+        "path": {
+          "description": "Ruta absoluta sin segmentos vacíos (no '//'), query opcional, sin fragmento.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^(/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*/?(\\?[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$"
+        }
+      }
+    },
+    "fixture_only": {"type": "boolean"},
+    "mode": {"enum": ["direct", "opencli"]},
+    "batch": {"type": "integer", "minimum": 1, "maximum": 10},
+    "deadline_ms": {"type": "integer", "minimum": 1000, "maximum": 60000}
+  },
+  "if": {"properties": {"fixture_only": {"const": true}}},
+  "then": {"properties": {"target": {"properties": {"origin": {"$ref": "#/$defs/loopback_origin"}}}}},
+  "else": {"properties": {"target": {"properties": {"origin": {"$ref": "#/$defs/public_origin"}}}}},
+  "$defs": {
+    "public_origin": {
+      "type": "string",
+      "pattern": "^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}(:[0-9]{1,5})?$"
+    },
+    "loopback_origin": {
+      "type": "string",
+      "pattern": "^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]{1,5})?$"
+    }
+  }
+}

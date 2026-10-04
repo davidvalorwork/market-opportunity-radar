@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.pair.private.v1.json",
+  "title": "Payload privado whatsapp.pair v1",
+  "description": "PRIVADO: se valida solo tras descifrar el blob de private_ref. Nunca en logs, colas, DynamoDB, telemetría ni LLM en claro.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "declared_phone"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "declared_phone": {
+      "description": "Número E.164 declarado para comprobar el JID tras vincular.",
+      "type": "string",
+      "pattern": "^\\+[1-9][0-9]{6,14}$"
+    }
+  }
+}

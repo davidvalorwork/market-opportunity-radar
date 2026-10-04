@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "capability_id": "example.opencli.read_listing",
+  "target": {
+    "origin": "https://www.example.com",
+    "path": "/search?q=watch&page=1"
+  },
+  "fixture_only": true,
+  "mode": "opencli",
+  "batch": 1,
+  "deadline_ms": 30000
+}

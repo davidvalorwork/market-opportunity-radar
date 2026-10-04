@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "message_id": "01J9ZX3Q4R5S6T7V8W9XAYBZC0",
+  "operation_id": "01J9ZX3Q4R5S6T7V8W9XAYBZC1",
+  "correlation_id": "6f1c2a4e-8b7d-4c3a-9e2f-1a2b3c4d5e6f",
+  "owner_ref": "owner:radar-pilot",
+  "kind": "whatsapp.send",
+  "deadline": "2026-10-03T12:05:00Z",
+  "attempt": 2,
+  "payload": {
+    "schema_version": 1,
+    "recipient_ref": "wacontact:synthetic-seller-1",
+    "approval_ref": "approval:01J9ZX3Q4R5S6T7V8W9XAYBZC2",
+    "content_sha256": "e2f74ffcb71c2e485011ee2ad62c83b2cef4144b4cb4f34b151ea648176439c4",
+    "private_ref": {
+      "blob_key": "private/whatsapp/radar-pilot/send-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+      "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+      "recipient_scope": "worker:whatsapp"
+    }
+  },
+  "causation_id": "01J9ZX3Q4R5S6T7V8W9XAYBZC3",
+  "session_ref": "whatsapp:radar-pilot",
+  "expected_version": 4,
+  "refs": [
+    {
+      "blob_key": "sessions/whatsapp/radar-pilot/4.age",
+      "sha256": "ce2ef41fcdd27214aa8c2c2ad974474295dff6d665d37d7395ec22420b024d3e"
+    }
+  ]
+}
