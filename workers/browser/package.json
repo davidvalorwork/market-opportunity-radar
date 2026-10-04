@@ -1,0 +1,15 @@
+{
+  "name": "market-radar-browser-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test selftest.mjs", "e2e": "node --test e2e.mjs" },
+  "dependencies": {
+    "@jackwener/opencli": "1.8.8",
+    "@sparticuz/chromium": "153.0.0",
+    "playwright-core": "1.63.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}
