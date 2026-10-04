@@ -1,0 +1,7 @@
+# Dockerfile-specific allowlist: only Go sources, never vaults, keys or session data.
+**
+!go/
+!go/go.mod
+!go/go.sum
+!go/cmd/**/*.go
+!go/internal/**/*.go
