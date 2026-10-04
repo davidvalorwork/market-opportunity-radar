@@ -1,4 +1,4 @@
-// Package whatsapp runs pair/sync/send jobs over ports. The whatsmeow client lives
+// Package whatsapp runs pair/sync/send/list_chats/resolve_contact jobs over ports. The whatsmeow client lives
 // in wameow; DynamoDB/S3 stores are pending; fakes live in fake.go.
 package whatsapp
 
@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"radar.local/radar/internal/contract"
@@ -18,7 +20,25 @@ var (
 	ErrConflict       = errors.New("conflict") // lease held by another owner, or a CAS/condition lost
 	ErrLeaseLost      = errors.New("lease_lost")
 	ErrNotFound       = errors.New("not_found")
+	ErrBadCursor      = errors.New("bad_cursor")      // cursor not issued by this session
+	ErrNotOnWhatsApp  = errors.New("not_on_whatsapp") // IsOnWhatsApp: number has no account
 )
+
+// Pending is a received message kept in the session state until a consumer acknowledges
+// it with a cursor (Ack). Cursor orders messages within one session.
+type Pending struct {
+	Cursor string
+	contract.Message
+}
+
+// Cursor and CursorSeq encode a pending message sequence number as "p<seq>" (fits the
+// since_cursor pattern; reveals nothing but an order).
+func Cursor(seq int64) string { return "p" + strconv.FormatInt(seq, 10) }
+
+func CursorSeq(c string) (int64, bool) {
+	n, err := strconv.ParseInt(strings.TrimPrefix(c, "p"), 10, 64)
+	return n, err == nil && strings.HasPrefix(c, "p") && n > 0 && Cursor(n) == c
+}
 
 // Client is implemented by wameow.Client (whatsmeow) and FakeClient.
 type Client interface {
@@ -26,8 +46,20 @@ type Client interface {
 	// PairPhone must run right after Connect: the login websocket closes after ~160 s.
 	PairPhone(ctx context.Context, phone string) (code string, err error)
 	WaitPaired(ctx context.Context) (jid string, err error)
-	// Sync returns once OfflineSyncCompleted arrives (completed=true) or ctx ends.
-	Sync(ctx context.Context, since string) (msgs []contract.Message, completed bool, err error)
+	// Sync waits for OfflineSyncCompleted (ErrTimeout if ctx ends first), discards pending
+	// messages of chats not in enabled, and returns the oldest limit pending messages of
+	// enabled chats plus whether more remain. Returned messages stay pending until Ack.
+	Sync(ctx context.Context, enabled []string, limit int) (page []Pending, more bool, err error)
+	// Ack deletes pending messages up to and including cursor (the consumer has them).
+	// A cursor the session never issued is ErrBadCursor. Local only, no network.
+	Ack(ctx context.Context, cursor string) error
+	// HasChat reports whether ref is a chat known to this session. Local only.
+	HasChat(ctx context.Context, ref string) (bool, error)
+	// ListChats returns up to limit known chats with ref > after, ordered by ref. Local only.
+	ListChats(ctx context.Context, after string, limit int) (chats []contract.Chat, more bool, err error)
+	// ResolveChat checks phone (E.164) with IsOnWhatsApp and returns a stable chat ref,
+	// or ErrNotOnWhatsApp. It never sends anything. Needs Connect.
+	ResolveChat(ctx context.Context, phone string) (ref string, err error)
 	Send(ctx context.Context, chat, text string) (providerMsgID string, err error)
 	Logout(ctx context.Context) error
 	Close() error

@@ -58,8 +58,8 @@ def test_valid_owner_command_validates_persists_once_and_acks(bot):
     assert command == {"schema_version": 1, "update_id": 100000001, "telegram_user_ref": "tguser:owner-a",
                        "command": "buscar", "args": {"query": "perfume 100 ml"}}
     validate("telegram.command.v1", command)
-    validate("envelope.v1", outbox)
-    assert outbox["kind"] == "telegram.command" and outbox["payload"] == command
+    validate("envelope.v2", outbox)
+    assert outbox["schema_version"] == 2 and outbox["kind"] == "telegram.command" and outbox["payload"] == command
     assert outbox["owner_ref"] == "owner:radar-pilot" and outbox["deadline"] == "2026-10-03T12:05:00Z"
     assert receipt["idempotency_keys"] == ["tg:update:100000001"]
     assert str(OWNER_ID) not in json.dumps([receipt, command, outbox])  # raw numeric ID never persisted

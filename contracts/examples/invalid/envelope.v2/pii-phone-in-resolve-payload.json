@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "message_id": "01J9ZX3Q4R5S6T7V8W9XAYBZC0",
+  "operation_id": "01J9ZX3Q4R5S6T7V8W9XAYBZC1",
+  "correlation_id": "6f1c2a4e-8b7d-4c3a-9e2f-1a2b3c4d5e6f",
+  "owner_ref": "owner:radar-pilot",
+  "deadline": "2026-10-03T12:05:00Z",
+  "attempt": 1,
+  "session_ref": "whatsapp:radar-pilot",
+  "expected_version": 4,
+  "kind": "whatsapp.resolve_contact",
+  "payload": {
+    "schema_version": 2,
+    "private_ref": {
+      "blob_key": "private/whatsapp/radar-pilot/contact-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+      "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+      "recipient_scope": "worker:whatsapp"
+    },
+    "phone": "+10000000000"
+  }
+}

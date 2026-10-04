@@ -11,7 +11,14 @@ import (
 )
 
 var decoders = map[string]func([]byte) (any, error){
-	"envelope.v1":                  func(b []byte) (any, error) { e, _, err := Decode(b); return e, err },
+	"envelope.v1":                  envelopeOf(SchemaVersion),
+	"envelope.v2":                  envelopeOf(SchemaV2),
+	"whatsapp.sync.v2":             func(b []byte) (any, error) { return DecodePayloadV2(KindSync, b) },
+	"whatsapp.list_chats.v2":       func(b []byte) (any, error) { return DecodePayloadV2(KindListChats, b) },
+	"whatsapp.resolve_contact.v2":  func(b []byte) (any, error) { return DecodePayloadV2(KindResolveContact, b) },
+	"whatsapp.result.v2":           func(b []byte) (any, error) { return DecodeResultV2(b) },
+	"whatsapp.contact.private.v1":  contactPriv,
+	"whatsapp.chats.private.v1":    chatsPriv,
 	"whatsapp.pair.v1":             func(b []byte) (any, error) { return DecodePayload(KindPair, b) },
 	"whatsapp.sync.v1":             func(b []byte) (any, error) { return DecodePayload(KindSync, b) },
 	"whatsapp.send.v1":             func(b []byte) (any, error) { return DecodePayload(KindSend, b) },
@@ -19,6 +26,17 @@ var decoders = map[string]func([]byte) (any, error){
 	"whatsapp.pair.private.v1":     pairPriv,
 	"whatsapp.send.private.v1":     sendPriv,
 	"whatsapp.messages.private.v1": msgsPriv,
+}
+
+// envelopeOf decodes with Decode (which accepts v1 and v2) and pins the schema's version.
+func envelopeOf(version int) func([]byte) (any, error) {
+	return func(b []byte) (any, error) {
+		e, _, err := Decode(b)
+		if err == nil && e.SchemaVersion != version {
+			err = Fail(Unsupported, "unknown schema_version")
+		}
+		return e, err
+	}
 }
 
 // notEnforced lists invalid golden examples Go accepts on purpose because the rule is

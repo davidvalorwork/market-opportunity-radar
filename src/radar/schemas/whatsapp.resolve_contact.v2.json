@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.resolve_contact.v2.json",
+  "title": "Payload whatsapp.resolve_contact v2 (transporte)",
+  "description": "Obtiene un chat_ref para un número que un vendedor publicó en el anuncio de esa venta. El teléfono, el anuncio de origen y la aprobación viajan solo en whatsapp.contact.private.v1 (private_ref). El worker exige un registro aprobado para operation_id, comprueba el número con IsOnWhatsApp y devuelve chat_ref o not_on_whatsapp. Nunca envía mensajes. Una aprobación por contacto; prohibida la enumeración masiva (ToS de WhatsApp, B-F018).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "private_ref"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "private_ref": {"$ref": "common.v1.json#/$defs/private_ref", "description": "Blob cifrado con whatsapp.contact.private.v1."}
+  }
+}

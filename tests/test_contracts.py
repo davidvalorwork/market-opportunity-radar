@@ -21,6 +21,7 @@ from radar import contracts  # noqa: E402
 EXAMPLES = ROOT / "contracts" / "examples"
 SCHEMAS = contracts.schema_names()
 PRIVATE_FIELDS = {"declared_phone", "text", "messages"}
+WHATSAPP_PRIVATE_FIELDS = PRIVATE_FIELDS | {"phone", "display_name", "chats"}  # contracts v2: contact and chat list
 
 
 def examples(group, schema):
@@ -35,7 +36,9 @@ class ContractTests(unittest.TestCase):
             self.assertTrue(schema["$id"].endswith(f"/contracts/{name}.json"))
             if name != "common.v1":
                 self.assertIs(schema["additionalProperties"], False, name)
-                self.assertEqual(schema["properties"]["schema_version"], {"$ref": "common.v1.json#/$defs/schema_version"})
+                version = int(name.rsplit(".v", 1)[1])  # vN documents pin schema_version N
+                expected = {"$ref": "common.v1.json#/$defs/schema_version"} if version == 1 else {"const": version}
+                self.assertEqual(schema["properties"]["schema_version"], expected, name)
 
     def test_transport_schemas_declare_no_private_fields(self):
         def keys(node):
@@ -48,7 +51,8 @@ class ContractTests(unittest.TestCase):
                     yield from keys(value)
         for name in SCHEMAS:
             if ".private." not in name:
-                self.assertFalse(PRIVATE_FIELDS & set(keys(contracts.load_schema(name))), name)
+                forbidden = WHATSAPP_PRIVATE_FIELDS if name.startswith(("whatsapp.", "envelope.")) else PRIVATE_FIELDS
+                self.assertFalse(forbidden & set(keys(contracts.load_schema(name))), name)
 
     def test_every_schema_has_golden_examples(self):
         for name in SCHEMAS:
