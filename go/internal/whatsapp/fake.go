@@ -20,7 +20,8 @@ type FakeClient struct {
 	Messages       []contract.Message       // incoming: the next Sync receives (and "acks") them into the pending list
 	Chats          map[string]contract.Chat // chats known to the session, by ref
 	NotOnWhatsApp  map[string]bool          // phones ResolveChat reports as not registered
-	SyncIncomplete bool                     // never reaches OfflineSyncCompleted
+	SyncFail       error                    // Sync receives Messages, then returns this instead of reaching OfflineSyncCompleted
+	BlockSync      bool                     // Sync receives Messages, then blocks until ctx ends (deadline first): ErrTimeout
 	Err            map[string]error         // injected per call name: connect, pair, wait, sync, ack, has_chat, list_chats, resolve, send, logout, snapshot
 	BlockWait      bool                     // WaitPaired blocks until ctx ends
 	PanicAfterSend bool                     // simulates a crash after the provider accepted the message
@@ -65,15 +66,19 @@ func (f *FakeClient) Sync(ctx context.Context, enabled []string, limit int) ([]P
 	if err := f.call(ctx, "sync"); err != nil {
 		return nil, false, err
 	}
-	if f.SyncIncomplete {
-		return nil, false, ErrTimeout
-	}
 	for _, m := range f.Messages { // received and acked to the provider: from now on only the pending list holds them
 		f.seq++
 		f.pending = append(f.pending, Pending{Cursor(f.seq), m})
 		f.known(m.ChatRef, &m.ObservedAt)
 	}
 	f.Messages = nil
+	if f.BlockSync {
+		<-ctx.Done()
+		return nil, false, ErrTimeout
+	}
+	if f.SyncFail != nil {
+		return nil, false, f.SyncFail
+	}
 	f.pending = slices.DeleteFunc(f.pending, func(p Pending) bool { return !slices.Contains(enabled, p.ChatRef) })
 	n := min(limit, len(f.pending))
 	return slices.Clone(f.pending[:n]), n < len(f.pending), nil
@@ -264,15 +269,27 @@ func (m *MemLedger) Transition(_ context.Context, op string, from, to State, met
 	return nil
 }
 
-// MemSessions is an in-memory SessionStore with version CAS.
+// MemSessions is an in-memory SessionStore with version CAS. Like a real store it fails
+// on an ended ctx; Err simulates the snapshot blob store failing, Block a store that hangs.
 type MemSessions struct {
 	mu       sync.Mutex
 	Versions map[string]int
+	Err      error
+	Block    bool
 }
 
-func (m *MemSessions) Save(_ context.Context, ref string, expected int, _ []byte) (int, error) {
+func (m *MemSessions) Save(ctx context.Context, ref string, expected int, _ []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.Err != nil {
+		return 0, m.Err
+	}
+	if m.Block {
+		<-ctx.Done()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if m.Versions == nil {
 		m.Versions = map[string]int{}
 	}

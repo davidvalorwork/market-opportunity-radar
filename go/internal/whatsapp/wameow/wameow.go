@@ -299,7 +299,7 @@ func (c *Client) Sync(ctx context.Context, enabled []string, limit int) ([]whats
 	err := c.wait(ctx, &c.offline)
 	c.cli.Disconnect()
 	if err != nil {
-		return nil, false, err // deadline: ErrTimeout; the worker reports timeout and keeps the old session
+		return nil, false, err // deadline: ErrTimeout; the worker still snapshots what was stored and reports timeout
 	}
 	return pendingPage(ctx, c.db, enabled, limit)
 }

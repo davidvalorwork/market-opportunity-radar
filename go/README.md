@@ -87,6 +87,19 @@ Sync v1: misma ruta con 100 como límite; si no cabe todo, `budget_exhausted` **
 se guarda la sesión** (los mensajes quedan pendientes para un sync v2); si cabe,
 se confirma con `Ack` tras sellar.
 
+Sync que falla tras `Connect` (v1 y v2): el cliente puede tener mensajes ya
+confirmados a WhatsApp solo en el `/tmp` local, así que el worker igual toma el
+snapshot y lo guarda por CAS con un contexto propio (`Worker.SaveBudget`, 5 s por
+defecto, acotado por el contexto del llamador y no por el deadline del job) y
+devuelve el error original (`timeout`, etc.) con `session_version` del estado
+guardado; lo recibido sigue pendiente y sale en la próxima página (al menos una
+vez). Si ese guardado falla: CAS perdido = `session_conflict`, otro fallo = el
+código original; en ambos el mensaje dice que los pendientes de esa corrida no se
+persistieron. Nunca guarda tras `StreamReplaced` (otro cliente es dueño del
+dispositivo; el snapshot revertiría sus claves/ratchets) ni tras `LoggedOut`
+(whatsmeow borra el device store en paralelo al evento: snapshot no determinista,
+y hace falta emparejar de nuevo); lo recibido antes de esos eventos se pierde.
+
 List chats (v2): sin lease ni conexión ni snapshot; `Client.ListChats` desde el
 estado de sesión, mismo reparto por 32 KiB, refs/nombres/fechas solo en
 `whatsapp.chats.private.v1`; `next_cursor` = último `chat_ref`.
@@ -171,7 +184,7 @@ interfaz en compilación.
 | Connect | `ConnectContext` y espera `events.QR` (sin vincular: el QR se ignora y no se guarda) o `events.Connected` (sesión guardada). Fallo de conexión o `events.ConnectFailure` = `ErrTimeout` |
 | PairPhone | Rechaza una sesión ya vinculada (`ErrAlreadyPaired`). `PairPhone(ctx, phone, true, PairClientChrome, "Chrome (Linux)")` justo después de `Connect`, como pide la doc (~160 s de websocket). `DeviceProps.PlatformType = CHROME`. El código solo va al `Notifier` |
 | WaitPaired | Espera `events.PairSuccess` y devuelve `ID.User` (`types.JID.User`, sin servidor ni dispositivo); luego hasta 30 s por la reconexión que whatsmeow hace tras emparejar |
-| Sync | Espera `events.OfflineSyncCompleted` hasta el deadline (si no: `ErrTimeout`, el worker da `timeout`). Recoge `events.Message` entrantes de texto (`conversation`/`extendedTextMessage.text`); ignora media, propios (`IsFromMe`), estados y listas de difusión. Cada mensaje se inserta en `radar_pending(seq, chat_ref, text, observed_at)` dentro del handler; con `SynchronousAck` WhatsApp recibe el ack solo después. `observed_at` = timestamp del mensaje en UTC. Desconecta **antes** de leer la tabla: lo que llegue después no se confirma y WhatsApp lo reentrega (al menos una vez; puede repetirse). Borra pendientes de chats no habilitados y devuelve los más antiguos con cursor `p<seq>` |
+| Sync | Espera `events.OfflineSyncCompleted` hasta el deadline (si no: `ErrTimeout`, el worker da `timeout` y guarda igual el snapshot con lo ya insertado). Recoge `events.Message` entrantes de texto (`conversation`/`extendedTextMessage.text`); ignora media, propios (`IsFromMe`), estados y listas de difusión. Cada mensaje se inserta en `radar_pending(seq, chat_ref, text, observed_at)` dentro del handler; con `SynchronousAck` WhatsApp recibe el ack solo después. `observed_at` = timestamp del mensaje en UTC. Desconecta **antes** de leer la tabla: lo que llegue después no se confirma y WhatsApp lo reentrega (al menos una vez; puede repetirse). Borra pendientes de chats no habilitados y devuelve los más antiguos con cursor `p<seq>` |
 | Ack | `DELETE FROM radar_pending WHERE seq <= ?`; cursor mal formado o mayor que el último `seq` emitido (`sqlite_sequence`) = `ErrBadCursor`. Reenviar un cursor ya usado no borra nada más |
 | List chats | `radar_chat_ref` + `radar_chat_seen(ref, last_message_at)` ordenados por ref; nombre = nombre de libreta, nombre, negocio o push name del store de contactos de whatsmeow (local, máx. 128 caracteres); grupos sin nombre |
 | Resolve | `IsOnWhatsApp(ctx, []string{phone})` (nombre verificado en el whatsmeow fijado; el teléfono va con `+`); exactamente una respuesta con `IsIn` → JID PN (o el canónico) → `chatRef`; si no, `ErrNotOnWhatsApp`. Probado offline solo el mapeo de respuestas |
@@ -267,5 +280,5 @@ validación por schema (Python/Node/Go en `contracts/validate`) sigue cubriéndo
 | Blobs privados | `MemBlobs`, identidad age efímera en el runner | S3 (escritura condicional), identidad del worker desde SSM, destinatarios de resultados por scope |
 | Notificación | `FakeNotifier` | Telegram con `protect_content` |
 | Entrada | Runner stdin/stdout | Handler Lambda/SQS |
-| Sync grande | Paginación v2 con pendientes en el SQLite de sesión | Si el CAS del snapshot falla tras un sync, los pendientes nuevos de esa corrida solo viven en el `/tmp` de la Lambda (el blob sellado sí queda referenciado) |
+| Sync grande | Paginación v2 con pendientes en el SQLite de sesión; un sync fallido (timeout incluido) igual guarda la sesión | Si el CAS del snapshot falla tras un sync, los pendientes nuevos de esa corrida solo viven en el `/tmp` de la Lambda (el blob sellado sí queda referenciado; el error lo dice). Pendientes recibidos antes de `LoggedOut`/`StreamReplaced` se pierden. El runner aún no pasa el deadline de la Lambda al contexto |
 | Ritmo de resolve/send | Una consulta por operación aprobada | Presupuesto por pasada y espera anti-ráfaga en la app (B-I09) |
