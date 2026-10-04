@@ -1,0 +1,38 @@
+name: Local AWS lease conformance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite-and-dynamodb-emulator:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
+      RADAR_REQUIRE_AWS_TESTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install exact optional test dependencies with hashes
+        run: |
+          python -m pip install --require-hashes --no-deps -r requirements-aws-test.lock
+          python -m pip check
+      - name: Require SDK and emulator rather than silently skipping
+        run: python -c "import boto3, botocore, moto"
+      - name: Run local suite including identical lease cases on both backends
+        run: python -m pytest -q -p no:cacheprovider tests
+      - name: Validate documentation
+        run: python scripts/check_docs.py
+      # mock_aws intercepts synthetic SDK calls; no AWS deployment/credentials.
