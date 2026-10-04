@@ -106,3 +106,23 @@ red ni secretos usados por este revisor. No aprueba cloud, otras operaciones,
 lenguaje natural general ni demuestra vinculación/lectura/envío real. El piloto
 determinista y Exa fijo son alcance parcial declarado, no implementación completa
 de GENERAL_TASKS; Worker legacy queda excluido y su deuda no se oculta.
+
+## Incremental A32 — snapshot y compatibilidad offline
+
+Revisados `fac3805` y nuevos `session_snapshot.py`/entrypoint/pruebas sobre
+root `9d5056b` con host WIP. **0 hallazgos locales nuevos en esa área**.
+Snapshot exige autorización explícita, fuente regular sin enlaces, un dispositivo
+almacenado, presupuesto y destino privado nuevo. SQLite backup incorpora WAL
+committed sin incorporar cambios sin commit; nunca raw-copy de la DB viva.
+El chequeador Go migra/materializa self exclusivamente en un clone temporal,
+elimina sólo ese leaf validado y no llama Connect, Sync ni Send. Phone sólo
+stdin/RAM, errores estáticos y salida de conteos/booleanos. Docker scratch,
+UID no privilegiado y límites/red-none documentados; no datos en build context.
+
+Pruebas independientes: Python 3/3 (0,58 s), Go 4 casos (1,831 s), sin red ni
+lectura de `.local`/credenciales/sesión real. La ejecución privada Docker y sus
+booleanos fueron reportados por root, no observados de nuevo por este revisor.
+Área offline apta; material almacenado compatible no demuestra sesión viva,
+autoridad, mensaje recibido o entrega. Pausa del runtime original/exclusión de
+sesiones sigue siendo gate separado antes de cualquier Connect; snapshot no lo
+resuelve ni autoriza activar el bridge. SHA final de integración aún pendiente.
