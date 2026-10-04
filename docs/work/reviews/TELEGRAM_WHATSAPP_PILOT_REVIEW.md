@@ -57,7 +57,7 @@ Verificación independiente del baseline: `check_docs.py` aprobado;
 Los seis fallos son ausencia de `tzdata` en el venv usado (UTC/IANA y metadata),
 no cambios del piloto; no se instalaron dependencias ni se declaró suite verde.
 
-## Incremental A28/A29 + host piloto (WIP, no aprobado)
+## Incremental A28/A29 + host piloto (WIP revisado)
 
 Árbol root observado `f8b16e82` más cambios no congelados. Los gates de captura
 previa, identidad real/dedupe y bypass del Worker antiguo quedan resueltos para
@@ -69,13 +69,15 @@ Diez probes propios pasan: age/keygen/config/factory reales sin IO a proveedores
 parser apagado, self binding, excepción host/texto/propósito fija sin aprobación
 implícita, plan confirmable y cuatro límites/recuperaciones de investigación.
 
-Gates nuevos aún abiertos en este snapshot:
+Hallazgos y cierres del snapshot:
 
-- **P2 — progreso perdido tras drain + fetch.** `pilot_backend.py:303–322`
+- **P2 cerrado incremental — progreso perdido tras drain + fetch.** `pilot_backend.py:303–322`
   consume un pendiente antes del commit; `research_cache.py:398` recupera sólo
   las refs de ese commit. Crash antes del checkpoint host devuelve una ref en
-  vez de las dos consumidas, sin nueva IO. Probe propio rojo. GENERAL_TASKS:
-  «checkpoints y dedupe conservan el progreso». Receipt debe abarcar el drain.
+  vez de las dos consumidas, sin nueva IO. Probe propio inicialmente rojo.
+  GENERAL_TASKS: «checkpoints y dedupe conservan el progreso». A28 `c1a56b6`
+  incorpora receipt drain transaccional; host concatena recuperaciones drain/page
+  antes de reservar. También recupera crash entre drain y reserva. Ambos verdes.
 - **P2 cerrado incremental — evidencia de capacidad sobreafirmada.** `pilot_sources.py:133–139`
   clasificaba compose/send `probado_real` sólo por sesión paired. Dos probes
   inicialmente rojos pasan con callback separado de evidencia por operación.
@@ -91,5 +93,16 @@ Gates nuevos aún abiertos en este snapshot:
   Eco del proveedor no garantizado: `/leer` sólo refleja lo capturado, límite
   declarado explícitamente; no prueba lectura, entrega ni historial completo.
 
-Dictamen provisional: no apto aún para activar el trayecto declarado. Sin nuevas
-cuentas/red/secretos, sin aprobación cloud ni afirmación de lectura/envío real.
+Evidencia final focal: 18/18 pruebas propias (10,86 s), incluyendo montaje real
+age/config/factory con proveedores prohibidos, bootstrap self acotado y ambos
+crashes; 5/5 casos nuevos de caché (4,14 s); 5 casos focales Go de A29 (0,332 s
+y 0,244 s). Docs checker y diff check pasan. Fuente host WIP sobre `22602f2`;
+la integración debe fijar el SHA final y conservar este resultado separado del
+trayecto real, todavía no observado por este revisor.
+
+Dictamen SPEC/safety local: apto condicionado al mismo corte congelado y a las
+verificaciones finales del coordinador; 0 hallazgos locales abiertos. Sin cuentas,
+red ni secretos usados por este revisor. No aprueba cloud, otras operaciones,
+lenguaje natural general ni demuestra vinculación/lectura/envío real. El piloto
+determinista y Exa fijo son alcance parcial declarado, no implementación completa
+de GENERAL_TASKS; Worker legacy queda excluido y su deuda no se oculta.
