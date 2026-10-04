@@ -74,11 +74,35 @@ jobs:
       - name: Test preserved browser fixture harness
         run: node --test lab/browser/selftest.mjs
 
+  browser-worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.15.0'
+          package-manager-cache: false
+      - name: Install locked browser worker dependencies without lifecycle scripts
+        working-directory: workers/browser
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test browser worker contracts and failure boundaries
+        run: node --test workers/browser/selftest.mjs
+      - name: Verify owned Linux process groups are cleaned
+        if: runner.os == 'Linux'
+        run: node --test workers/browser/process-selftest.mjs
+      # Chromium/RIE gates remain separate, sequential resource-guarded trials.
+      # These lightweight tests do not verify real cookies, sources or AWS.
+
   go:
     strategy:
       fail-fast: false
       matrix:
-        module: [contracts/validate/go, go]
+        module: [contracts/validate/go, go, lab/sessions]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
