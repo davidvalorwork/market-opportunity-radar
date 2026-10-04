@@ -11,10 +11,11 @@ Global product sourcing and resale intelligence: discover listings across the op
 web and social channels, match equivalent products, and estimate cost-aware margins
 with source evidence. Local-first, configurable and designed around Agent Reach.
 
-**Estado: arquitectura y laboratorio Docker local, 2026-10-03.** Incluye un
-runner de mediciones, un handler de navegador con fixture sintético y un CLI de
-sesiones cifradas. No contiene todavía un buscador, comparador comercial ni
-dashboard operativo. La configuración del producto sigue siendo una propuesta.
+**Estado: dominio y primer flujo local sintético, 2026-10-03.** A1/A2/A0b están
+integradas localmente; A3 añade un incremento en su rama para revisión: webhook
+Telegram real con directorio falso, SQLite durable, cola/worker/UI falsos y
+comparación de registros con evidencia. Incluye también el laboratorio Docker
+y el CLI de sesiones cifradas. No hay buscador comercial ni fuente real verificada.
 No hay campañas, compras, ventas, mensajes o ganancias reales generadas por este
 proyecto. No es Job Radar ni una demo de facturas. La implementación A/B empieza
 por contratos, dominio y flujo local; ver [tablero](docs/work/BOARD.md),
@@ -194,6 +195,49 @@ CPU, tiempos, imagen, errores y cleanup. Mantiene 4 GiB de reserva en el host y
 No borra ni detiene otros contenedores. Los límites Docker no reproducen el CPU,
 networking ni la facturación de AWS.
 
+## Probar el flujo sintético A3
+
+Con las dependencias fijadas en `requirements.lock`, ejecutar:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m pytest -q tests/flow
+```
+
+La integración programática está en `radar.adapters.local.runtime.LocalRuntime`:
+recibe una ruta SQLite privada (por ejemplo `.local/control.sqlite`), fixtures
+de campos crudos y `synthetic_authorized=True`. Se configura un directorio
+numérico **sintético**, consentimiento, `SavedSearch` por propietario y capacidad
+autorizada; `webhook.handle_update(...)` recibe `/buscar fixture`. Después,
+`pump(owner_ref, search_ref="search:perfume")` procesa la cola durable baseline
+`commands.fifo`, worker falso y resultados v1 validados hasta el informe/UI falsa.
+[Ejemplo programático reproducible](tests/flow/test_search_flow.py) y
+[configuración sintética explícita](tests/flow/conftest.py).
+
+SQLite guarda receipt + comando + outbox en una transacción; conserva IDs al
+replay, snapshot de búsqueda/costos, presupuestos de trabajos/páginas, cursor,
+resultados y alert intents locales. Estos intents tienen tipo propio y **no** son
+un nuevo kind de transporte v1. Publicar antes de marcar puede repetir;
+consumidores y UI falsa convergen. Los resultados admitidos antes del deadline
+pueden proyectarse después; no se inicia otra página vencida.
+
+El dominio normaliza, compara y calcula con A2; el reporte muestra cobertura,
+errores, descartes, faltantes y IDs. El costo de cómputo USD sigue desconocido.
+Límites actuales: 18 monedas, liquidación de lotes completos y costos aplicables
+declarados; los precios publicados no acreditan ventas ni ganancias realizadas.
+Datos sintéticos públicos permanecen en blobs locales sin cifrar; este adaptador
+rechaza referencias privadas y no simula age. IA y fuentes reales siguen apagadas.
+
+Este primer corte cubre búsqueda/resultados y fallos locales; aprobación/envío/
+reconciliación simulados tienen código experimental pendiente de su batería de
+pruebas. El adaptador de `UnitOfWork` es parcial: recepción/claim están cableados;
+`approve_action`, `record_result` y `transition` con wire outbox se rechazan sin
+mutación, hasta disponer de payload privado/proveedor verificado. No acredita
+conformidad completa A1 ni integración con Go real/AWS. `/stop` es cancelación
+local durable, no Logout en WhatsApp. Los demás comandos B2 quedan pendientes
+en su cola durable; no se presentan como implementados. Telegram sigue siendo
+la única UI comercial prevista; este arnés no añade otra CLI de producto.
+
 `--host-reserve-gib` permite configurar explícitamente la reserva (3–16 GiB,
 default 4). Una reducción queda marcada `reduced_reserve_experiment`; no se hace
 automáticamente para conseguir un test aprobado.
@@ -227,9 +271,10 @@ que sus contratos o workers estén listos por existir este documento.
 
 ## Límites y siguiente entrega
 
-La siguiente entrega será una vertical mínima: importar anuncios autorizados,
-normalizarlos, comparar variantes y producir un reporte reproducible de costos,
-sin acciones externas. Después se habilitarán fuentes una por una al verificar
+El incremento A3 permite normalizar fixtures y producir informes reproducibles
+de costos sin acciones externas. Falta completar los gates de acciones locales,
+revisar/integrar la rama y construir conectores de fuentes autorizadas. Después
+se habilitarán fuentes una por una al verificar
 acceso y extracción; la cuota de búsqueda no reemplazará la calidad de comparación.
 
 Ni la publicación del repositorio ni un test aprobado demuestran utilidad real,

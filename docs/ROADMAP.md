@@ -1,6 +1,6 @@
 # Roadmap y criterios de salida
 
-Actualizado: 2026-10-03, A0. Implementación local por fases, sin fechas ni
+Actualizado: 2026-10-03, primer incremento A3. Implementación local por fases, sin fechas ni
 ingresos prometidos. Fuente de tareas/dueños/dependencias:
 [BOARD](work/BOARD.md), [CODEX_TASKS](work/CODEX_TASKS.md) y
 [plan detallado B](research/agent-b/implementation-plan.md).
@@ -11,14 +11,24 @@ Dirección y límites vigentes en [ARCHITECTURE](ARCHITECTURE.md),
 
 `6ae7cf2` es ancestro de `main`: la línea base de investigación, documentación
 y laboratorio está integrada localmente. No demuestra CI remota ni publicación.
-El usuario autorizó iniciar tareas A; A0 entrega una rama local para revisión,
-no un nuevo merge/push, cuenta real o cloud. Las respuestas de arquitectura
+El usuario autorizó integrar A1 (`52b6014`), A2 (`9f74031`) y A0b (`a30c05f`)
+en main local, sin push, y continuar A3. A3 entrega su rama local para revisión;
+esa autorización no implica integrar A3, push, cuenta real o cloud. Las respuestas de arquitectura
 R1–R4 y B-Q006 están reportadas por Claude; ver registro de decisiones.
 
 Lab habilitador: navegador Lambda/RIE con Playwright/OpenCLI, sesiones age,
 versiones/CAS, upload/renew explícito y runner de recursos.
 [Resultados sintéticos y límites](testing/LOCAL_RESULTS.md). No son soporte
 social ni fase comercial terminada; la configuración de producto sigue documental.
+
+Primer corte A3 observado: SQLite en disco con receipt/command/outbox atómicos,
+replay durable, queue/worker/UI falsos, cálculo A2 derivado de evidencia, snapshot
+de búsqueda, presupuesto/cursor, resultados y alert intents locales. Casos
+de búsqueda/resultados probados en `tests/flow`; acciones/aprobación/reconciliación
+simuladas aún pendientes de sus pruebas. La recepción UoW es parcial, no
+conformidad completa A1; wire actions requieren age y proveedor verificado.
+No se conecta el worker Go ni AWS. Consentimiento B y revisión de main vigente
+son gates de integración. No se elimina `commands.fifo`: R1 aún no medido.
 
 ## Fases F0–F15
 
@@ -46,7 +56,7 @@ separada antes de ejecutar el gate real.
 | F14 | Feedback, informes y operación (A/B) | JSON + Telegram, cobertura/salud, runbooks para DLQ/send_uncertain/needs_reauth y actualización de dependencias |
 | F15 | Segunda vertical | **[U]** alcance formalmente confirmado después de F12; fixtures y casos reales antes de generalizar dominio |
 
-R1 compara comandos directo desde Streams frente a `commands.fifo`; el baseline
+R1 comparará comandos directo desde Streams frente a `commands.fifo`; el baseline
 conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales justificados
 en productos, no implementa otras verticales. R4 exige permisos/capacidades antes
 de toda ruta HTTP. B-Q006 permite respaldo local sin proxies/evasión según el
