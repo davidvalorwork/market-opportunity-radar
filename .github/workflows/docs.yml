@@ -52,7 +52,39 @@ jobs:
           python -m pip install --no-deps setuptools==84.0.0
           python -m pip install --no-build-isolation --no-deps -e ".[test]"
           python -m pip check
+      - name: Prepare pinned Go for real offline private-vault tests
+        if: ${{ hashFiles('helpers/private-vault/go.mod') != '' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Download and verify locked private-vault dependencies explicitly
+        if: ${{ hashFiles('helpers/private-vault/go.mod') != '' }}
+        working-directory: helpers/private-vault
+        env:
+          GOFLAGS: '-mod=readonly'
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+        run: |
+          go mod download
+          go mod verify
+          go vet ./...
+      - name: Test real private-vault helper without dependency network access
+        if: ${{ hashFiles('helpers/private-vault/go.mod') != '' }}
+        working-directory: helpers/private-vault
+        env:
+          GOFLAGS: '-mod=readonly'
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: go test -count=1 ./...
       - name: Run Python tests
+        env:
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
         run: python -m pytest -q tests
       # No cloud, credentials or real accounts are required by this job.
 
