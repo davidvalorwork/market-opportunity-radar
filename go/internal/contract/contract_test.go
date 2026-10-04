@@ -51,7 +51,7 @@ func TestDecode(t *testing.T) {
 		{"unknown payload field", env(KindSync, 1, `{"schema_version":1,"enabled_chat_refs":["wachat:a"],"x":1}`), InvalidInput},
 		{"text in clear", env(KindSend, 1, strings.Replace(sendPayload, `"recipient_ref"`, `"text":"fixture text","recipient_ref"`, 1)), InvalidInput},
 		{"declared phone in clear", env(KindPair, 0, strings.Replace(pairPayload, `"notify"`, `"declared_phone":"+10000000000","notify"`, 1)), InvalidInput},
-		{"unknown schema version", strings.Replace(send, `"schema_version":1`, `"schema_version":2`, 1), Unsupported},
+		{"unknown schema version", strings.Replace(send, `"schema_version":1`, `"schema_version":3`, 1), Unsupported},
 		{"missing schema version", strings.Replace(send, `"schema_version":1,`, ``, 1), InvalidInput},
 		{"unknown payload schema version", env(KindSync, 1, `{"schema_version":2,"enabled_chat_refs":["wachat:a"]}`), Unsupported},
 		{"missing payload schema version", env(KindSync, 1, `{"enabled_chat_refs":["wachat:a"]}`), InvalidInput},
@@ -85,6 +85,7 @@ func TestDecode(t *testing.T) {
 		{"send needs session ref", strings.Replace(send, `"session_ref":"whatsapp:fixture",`, ``, 1), InvalidInput},
 		{"send needs expected version", strings.Replace(send, `,"expected_version":1`, ``, 1), InvalidInput},
 	}
+	cases = append(cases, v2Cases...)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			_, p, err := Decode([]byte(c.in))
@@ -100,6 +101,49 @@ func TestDecode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// envV2 is env with envelope schema_version 2.
+func envV2(kind string, version int, payload string) string {
+	return strings.Replace(env(kind, version, payload), `"schema_version":1,"message_id"`, `"schema_version":2,"message_id"`, 1)
+}
+
+var (
+	syncV2Payload    = `{"schema_version":2,"enabled_chat_refs":["wachat:seller-a"],"page_size":50}`
+	listPayload      = `{"schema_version":2,"page_size":100}`
+	resolvePayload   = `{"schema_version":2,` + pref + `}`
+	resultV2Page     = `{"schema_version":2,"status":"succeeded","message_count":1,` + pref + `,"next_cursor":"p7","has_more":true,"session_version":2}`
+	resultV2NotFound = `{"schema_version":2,"status":"failed","error":{"code":"not_on_whatsapp","message":"x"}}`
+)
+
+// Consumers accept envelope.v1 and envelope.v2 during the migration.
+var v2Cases = []struct{ name, in, code string }{
+	{"v2 sync ok", envV2(KindSync, 1, syncV2Payload), ""},
+	{"v2 sync with cursor ok", envV2(KindSync, 1, `{"schema_version":2,"enabled_chat_refs":["wachat:a"],"since_cursor":"p42","page_size":1}`), ""},
+	{"v2 list chats ok", envV2(KindListChats, 1, listPayload), ""},
+	{"v2 resolve contact ok", envV2(KindResolveContact, 1, resolvePayload), ""},
+	{"v2 send keeps v1 payload", envV2(KindSend, 1, sendPayload), ""},
+	{"v2 pair keeps v1 payload", envV2(KindPair, 0, pairPayload), ""},
+	{"v2 result page ok", envV2(KindResult, 1, resultV2Page), ""},
+	{"v2 result not on whatsapp ok", envV2(KindResult, 1, resultV2NotFound), ""},
+	{"v1 result rejects not_on_whatsapp", env(KindResult, 1, strings.Replace(resultV2NotFound, `"schema_version":2`, `"schema_version":1`, 1)), InvalidInput},
+	{"v1 result rejects next_cursor", env(KindResult, 1, `{"schema_version":1,"status":"succeeded","next_cursor":"p1"}`), InvalidInput},
+	{"v1 kind list chats", env(KindListChats, 1, listPayload), InvalidInput},
+	{"v1 sync rejects page_size", env(KindSync, 1, `{"schema_version":1,"enabled_chat_refs":["wachat:a"],"page_size":5}`), InvalidInput},
+	{"v2 sync v1 payload", envV2(KindSync, 1, syncPayload), Unsupported},
+	{"v2 sync needs page size", envV2(KindSync, 1, `{"schema_version":2,"enabled_chat_refs":["wachat:a"]}`), InvalidInput},
+	{"v2 sync page size 101", envV2(KindSync, 1, `{"schema_version":2,"enabled_chat_refs":["wachat:a"],"page_size":101}`), InvalidInput},
+	{"v2 sync cursor traversal", envV2(KindSync, 1, `{"schema_version":2,"enabled_chat_refs":["wachat:a"],"since_cursor":"../p","page_size":5}`), InvalidInput},
+	{"v2 list chats needs session", envV2(KindListChats, 0, listPayload), InvalidInput},
+	{"v2 list chats page size 0", envV2(KindListChats, 1, `{"schema_version":2,"page_size":0}`), InvalidInput},
+	{"v2 resolve phone in clear", envV2(KindResolveContact, 1, `{"schema_version":2,"phone":"+10000000000",`+pref+`}`), InvalidInput},
+	{"v2 resolve needs private ref", envV2(KindResolveContact, 1, `{"schema_version":2}`), InvalidInput},
+	{"v2 result v1 payload", envV2(KindResult, 1, `{"schema_version":1,"status":"succeeded"}`), Unsupported},
+	{"v2 result names in clear", envV2(KindResult, 1, `{"schema_version":2,"status":"succeeded","chats":[]}`), InvalidInput},
+	{"v2 result phone as chat ref", envV2(KindResult, 1, `{"schema_version":2,"status":"succeeded","chat_ref":"wachat:10000000000"}`), InvalidInput},
+	{"v2 result messages and chats", envV2(KindResult, 1, `{"schema_version":2,"status":"succeeded","message_count":1,"chat_count":1,`+pref+`}`), InvalidInput},
+	{"v2 result empty cursor", envV2(KindResult, 1, `{"schema_version":2,"status":"succeeded","next_cursor":""}`), InvalidInput},
+	{"v2 unknown kind", envV2("whatsapp.enumerate", 1, `{}`), InvalidInput},
 }
 
 // Kinds outside this module validate at envelope level only; the worker answers unsupported.
@@ -132,6 +176,15 @@ func TestDecodePrivate(t *testing.T) {
 		{"message text missing", msgsPriv, `{"schema_version":1,"messages":[{"chat_ref":"wachat:a","observed_at":"2026-10-03T12:00:00Z"}]}`, InvalidInput},
 		{"message local time", msgsPriv, `{"schema_version":1,"messages":[{"chat_ref":"wachat:a","text":"x","observed_at":"2026-10-03T14:00:00+02:00"}]}`, InvalidInput},
 		{"message numeric chat ref", msgsPriv, `{"schema_version":1,"messages":[{"chat_ref":"wachat:100","text":"x","observed_at":"2026-10-03T12:00:00Z"}]}`, InvalidInput},
+		{"contact ok", contactPriv, `{"schema_version":1,"phone":"+10000000000","source_ref":"listing:l-1","approval_ref":"approval:ap-1"}`, ""},
+		{"contact phone not e164", contactPriv, `{"schema_version":1,"phone":"10000000000","source_ref":"listing:l-1","approval_ref":"approval:ap-1"}`, InvalidInput},
+		{"contact missing approval", contactPriv, `{"schema_version":1,"phone":"+10000000000","source_ref":"listing:l-1"}`, InvalidInput},
+		{"contact v2", contactPriv, `{"schema_version":2,"phone":"+10000000000","source_ref":"listing:l-1","approval_ref":"approval:ap-1"}`, Unsupported},
+		{"chats ok", chatsPriv, `{"schema_version":1,"chats":[{"chat_ref":"wachat:a","display_name":"` + strings.Repeat("ñ", 128) + `","last_message_at":"2026-10-03T12:00:00Z"},{"chat_ref":"wachat:b"}]}`, ""},
+		{"chats empty", chatsPriv, `{"schema_version":1,"chats":[]}`, InvalidInput},
+		{"chats name too long", chatsPriv, `{"schema_version":1,"chats":[{"chat_ref":"wachat:a","display_name":"` + strings.Repeat("a", 129) + `"}]}`, InvalidInput},
+		{"chats empty name", chatsPriv, `{"schema_version":1,"chats":[{"chat_ref":"wachat:a","display_name":""}]}`, InvalidInput},
+		{"chats phone field", chatsPriv, `{"schema_version":1,"chats":[{"chat_ref":"wachat:a","phone":"+10000000000"}]}`, InvalidInput},
 		{"101 messages", msgsPriv, `{"schema_version":1,"messages":[` + strings.Repeat(`{"chat_ref":"wachat:a","text":"x","observed_at":"2026-10-03T12:00:00Z"},`, 100) + `{"chat_ref":"wachat:a","text":"x","observed_at":"2026-10-03T12:00:00Z"}]}`, InvalidInput},
 	}
 	for _, c := range cases {
@@ -143,6 +196,8 @@ func TestDecodePrivate(t *testing.T) {
 	}
 }
 
-func pairPriv(b []byte) (any, error) { return DecodePairPrivate(b) }
-func sendPriv(b []byte) (any, error) { return DecodeSendPrivate(b) }
-func msgsPriv(b []byte) (any, error) { return DecodeMessagesPrivate(b) }
+func pairPriv(b []byte) (any, error)    { return DecodePairPrivate(b) }
+func sendPriv(b []byte) (any, error)    { return DecodeSendPrivate(b) }
+func msgsPriv(b []byte) (any, error)    { return DecodeMessagesPrivate(b) }
+func contactPriv(b []byte) (any, error) { return DecodeContactPrivate(b) }
+func chatsPriv(b []byte) (any, error)   { return DecodeChatsPrivate(b) }

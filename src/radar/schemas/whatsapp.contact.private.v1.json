@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.contact.private.v1.json",
+  "title": "Payload privado whatsapp.resolve_contact v1",
+  "description": "PRIVADO: se valida solo tras descifrar el blob de private_ref. Solo un número que el vendedor publicó para esa venta (source_ref), con una aprobación propia (approval_ref). Nunca en logs, colas, DynamoDB, telemetría ni LLM en claro.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "phone", "source_ref", "approval_ref"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "phone": {"description": "Número E.164 publicado por el vendedor.", "type": "string", "pattern": "^\\+[1-9][0-9]{6,14}$"},
+    "source_ref": {"$ref": "common.v1.json#/$defs/opaque_ref", "description": "Ref opaca del anuncio publicado que expuso el número."},
+    "approval_ref": {"$ref": "common.v1.json#/$defs/opaque_ref", "description": "Aprobación humana de este contacto concreto."}
+  }
+}

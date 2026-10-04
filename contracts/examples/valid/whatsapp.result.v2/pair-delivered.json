@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "status": "succeeded",
+  "pairing": {
+    "code_delivered": true
+  },
+  "session_version": 1
+}

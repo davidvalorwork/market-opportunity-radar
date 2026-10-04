@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.result.v2.json",
+  "title": "Payload whatsapp.result v2 (transporte)",
+  "description": "Resultado de pair/sync/send/list_chats/resolve_contact en un sobre v2. Igual que v1 (envío sin prueba durable: failed + send_uncertain; pairing sin código) más paginación: next_cursor se pasa como since_cursor de la siguiente página y has_more indica que quedan elementos (ausente = false). list_chats devuelve chat_count + private_ref (whatsapp.chats.private.v1); sync, message_count + private_ref (whatsapp.messages.private.v1); resolve_contact, chat_ref opaco o el error not_on_whatsapp. Nunca texto, teléfonos ni nombres en claro.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "status": {"enum": ["succeeded", "failed"]},
+    "error": {
+      "description": "Como common.v1 error, con not_on_whatsapp añadido (número sin cuenta de WhatsApp).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "needs_reauth", "unsupported", "rate_limited", "blocked", "empty_verified",
+            "timeout", "send_uncertain", "session_conflict", "invalid_input",
+            "budget_exhausted", "internal", "not_on_whatsapp"
+          ]
+        },
+        "message": {"type": "string", "maxLength": 512}
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_delivered"],
+      "properties": {"code_delivered": {"type": "boolean"}}
+    },
+    "message_count": {"type": "integer", "minimum": 0, "maximum": 100},
+    "chat_count": {"type": "integer", "minimum": 0, "maximum": 100},
+    "private_ref": {"$ref": "common.v1.json#/$defs/private_ref", "description": "Blob cifrado con whatsapp.messages.private.v1 (sync) o whatsapp.chats.private.v1 (list_chats)."},
+    "chat_ref": {"$ref": "common.v1.json#/$defs/opaque_ref", "description": "resolve_contact: ref opaca del chat; nunca el teléfono ni el JID."},
+    "next_cursor": {"type": "string", "pattern": "^[A-Za-z0-9_.:=-]{1,256}$"},
+    "has_more": {"type": "boolean"},
+    "provider_message_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+    "session_version": {"type": "integer", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "succeeded"}}},
+      "then": {"not": {"required": ["error"]}},
+      "else": {"required": ["error"]}
+    },
+    {
+      "if": {"required": ["message_count"], "properties": {"message_count": {"minimum": 1}}},
+      "then": {"required": ["private_ref"], "not": {"required": ["chat_count"]}}
+    },
+    {
+      "if": {"required": ["chat_count"], "properties": {"chat_count": {"minimum": 1}}},
+      "then": {"required": ["private_ref"]}
+    }
+  ]
+}

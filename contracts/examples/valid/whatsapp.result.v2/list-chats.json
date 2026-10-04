@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "status": "succeeded",
+  "chat_count": 2,
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/chats-e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972.age",
+    "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+    "recipient_scope": "worker:whatsapp"
+  },
+  "next_cursor": "wachat:synthetic-seller-2"
+}

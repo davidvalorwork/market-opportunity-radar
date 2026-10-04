@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "chats": [
+    {
+      "chat_ref": "wachat:synthetic-seller-1",
+      "display_name": "Tienda Sintética",
+      "last_message_at": "2026-10-03T12:00:00Z"
+    },
+    {
+      "chat_ref": "wachat:synthetic-seller-2",
+      "last_message_at": "2026-10-02T09:30:00Z"
+    }
+  ]
+}

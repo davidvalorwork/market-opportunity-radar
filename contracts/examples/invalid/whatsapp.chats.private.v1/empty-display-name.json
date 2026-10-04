@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "chats": [
+    {
+      "chat_ref": "wachat:a",
+      "display_name": ""
+    }
+  ]
+}

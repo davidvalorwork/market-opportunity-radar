@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,6 +25,10 @@ func TestRunner(t *testing.T) {
 	pair := envelope(contract.KindPair, "0", `{"schema_version":1,"notify":"tgchat:radar-pilot-owner","method":"code",`+pref+`}`)
 	hola := `{"schema_version":1,"text":"hola"}`
 	phone := `{"schema_version":1,"declared_phone":"+10000000000"}`
+	contact := `{"schema_version":1,"phone":"+10000000005","source_ref":"listing:synthetic-1","approval_ref":"approval:ap-9"}`
+	v2 := func(e string) string {
+		return strings.Replace(e, `{"schema_version":1,"message_id"`, `{"schema_version":2,"message_id"`, 1)
+	}
 	cases := []struct {
 		name, in, private, code string
 		fake                    bool
@@ -37,6 +42,12 @@ func TestRunner(t *testing.T) {
 		{"fake pair bad private", pair, `{"schema_version":1,"declared_phone":"10000000000"}`, contract.InvalidInput, true},
 		{"fake sync", envelope(contract.KindSync, "1", `{"schema_version":1,"enabled_chat_refs":["wachat:seller-a"]}`), "", "", true},
 		{"foreign kind", envelope("telegram.command", "0", `{"schema_version":1}`), "", contract.Unsupported, true},
+		{"fake v2 send", v2(send), hola, "", true},
+		{"fake v2 sync page", v2(envelope(contract.KindSync, "1", `{"schema_version":2,"enabled_chat_refs":["wachat:seller-a"],"page_size":10}`)), "", "", true},
+		{"fake v2 list chats", v2(envelope(contract.KindListChats, "1", `{"schema_version":2,"page_size":10}`)), "", "", true},
+		{"fake v2 resolve contact", v2(envelope(contract.KindResolveContact, "1", `{"schema_version":2,`+pref+`}`)), contact, "", true},
+		{"fake v2 resolve without private", v2(envelope(contract.KindResolveContact, "1", `{"schema_version":2,`+pref+`}`)), "", contract.InvalidInput, true},
+		{"fake v2 resolve bad private", v2(envelope(contract.KindResolveContact, "1", `{"schema_version":2,`+pref+`}`)), strings.Replace(contact, `"+1`, `"1`, 1), contract.InvalidInput, true},
 		{"invalid envelope", `{}`, "", contract.InvalidInput, true},
 	}
 	for _, c := range cases {
@@ -49,8 +60,8 @@ func TestRunner(t *testing.T) {
 			if got != c.code || (c.code == "") != (r.Status == contract.StatusSucceeded) {
 				t.Fatalf("result %+v error %+v", r, r.Error)
 			}
-			schematest.Validate(t, "whatsapp.result.v1", r)
-			if out, _ := json.Marshal(r); strings.Contains(string(out), "synthetic") || strings.Contains(string(out), "hola") || strings.Contains(string(out), "FAKE0000") {
+			schematest.Validate(t, "whatsapp.result.v"+strconv.Itoa(r.SchemaVersion), r)
+			if out, _ := json.Marshal(r); strings.Contains(string(out), "synthetic") || strings.Contains(string(out), "hola") || strings.Contains(string(out), "FAKE0000") || strings.Contains(string(out), "10000000005") {
 				t.Fatalf("private data in result: %s", out)
 			}
 		})
@@ -60,7 +71,10 @@ func TestRunner(t *testing.T) {
 // failReader fails the test if the gate lets a refused run read stdin.
 type failReader struct{ t *testing.T }
 
-func (f failReader) Read([]byte) (int, error) { f.t.Fatal("stdin read by a refused run"); return 0, io.EOF }
+func (f failReader) Read([]byte) (int, error) {
+	f.t.Fatal("stdin read by a refused run")
+	return 0, io.EOF
+}
 
 // The --real gate refuses before reading stdin or touching disk. No case here can reach
 // wameow.Client.Connect, so no test dials WhatsApp.

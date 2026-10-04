@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/contact-2.age",
+    "sha256": "e97dc7b718d35168499c5ed64207b5e075e8018bec578ee13e3633a91638966d",
+    "recipient_scope": "worker:whatsapp-pilot"
+  }
+}

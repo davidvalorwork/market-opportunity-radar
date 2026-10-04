@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ type fx struct {
 func newFx() *fx {
 	id, _ := age.GenerateX25519Identity()
 	return &fx{
-		c:      &FakeClient{JID: "10000000000:7@s.whatsapp.net", Code: "FAKE1234"},
+		c:      &FakeClient{JID: "10000000000:7@s.whatsapp.net", Code: "FAKE1234", Chats: map[string]contract.Chat{"wachat:seller-a": {ChatRef: "wachat:seller-a"}}},
 		leases: &MemLeases{},
 		ledger: &MemLedger{Records: map[string]Record{"op-1": {
 			State: Approved, OwnerRef: "owner:radar-pilot", RecipientRef: "wachat:seller-a", ApprovalRef: "approval:ap-1", ContentSHA256: contract.SHA256Hex(text),
@@ -90,10 +91,10 @@ func code(r contract.Result) string {
 	return r.Error.Code
 }
 
-// checkResult validates a handler result against whatsapp.result.v1 and checks no private data leaked.
+// checkResult validates a handler result against whatsapp.result.v<schema_version> and checks no private data leaked.
 func checkResult(t *testing.T, r contract.Result, secrets ...string) {
 	t.Helper()
-	schematest.Validate(t, "whatsapp.result.v1", r)
+	schematest.Validate(t, "whatsapp.result.v"+strconv.Itoa(r.SchemaVersion), r)
 	if err := r.Check(); err != nil {
 		t.Errorf("Result.Check: %v", err)
 	}
@@ -182,6 +183,9 @@ func TestSend(t *testing.T) {
 		{name: "private text too long", setup: setPriv(`{"schema_version":1,"text":"` + strings.Repeat("a", contract.MaxText+1) + `"}`), code: contract.InvalidInput, state: Approved},
 		{name: "private schema version 2", setup: setPriv(`{"schema_version":2,"text":"` + text + `"}`), code: contract.Unsupported, state: Approved},
 		{name: "private not json", setup: setPriv(`not json`), code: contract.InvalidInput, state: Approved},
+		// Gap (d): an unknown recipient is refused before lease, connect and claim; nothing becomes send_uncertain.
+		{name: "recipient unknown to the session", setup: func(f *fx, _ *contract.Envelope, _ *contract.Send) { f.c.Chats = nil },
+			code: contract.InvalidInput, state: Approved},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -321,7 +325,8 @@ func TestSync(t *testing.T) {
 		{name: "stream replaced", setup: func(f *fx) { f.c.Err = map[string]error{"connect": ErrStreamReplaced} }, code: contract.SessionConflict, version: 1},
 		{name: "offline sync incomplete", setup: func(f *fx) { f.c.SyncIncomplete = true }, code: contract.Timeout, version: 1},
 		{name: "session version conflict", setup: func(f *fx) { f.sessions.Versions[ref] = 5 }, code: contract.SessionConflict, kept: 1, version: 5},
-		{name: "more than 100 messages", setup: func(f *fx) { f.c.Messages = many }, code: contract.BudgetExhausted, version: 1},
+		// v1 cannot page: budget_exhausted, but the session is saved so the 101 messages stay pending (gap a).
+		{name: "more than 100 messages", setup: func(f *fx) { f.c.Messages = many }, code: contract.BudgetExhausted, version: 2},
 		{name: "blob store failure", setup: func(f *fx) { f.blobs.PutErr = ErrTimeout }, code: contract.Timeout, version: 1},
 	}
 	for _, c := range cases {
@@ -339,6 +344,9 @@ func TestSync(t *testing.T) {
 			checkResult(t, r, "SYNTHETIC", "wachat:")
 			if f.leases.Held(ref) || f.c.Calls["close"] != 1 {
 				t.Fatalf("lease held or client not closed: %v", f.c.Calls)
+			}
+			if c.name == "more than 100 messages" && len(f.c.Pending()) != len(many) {
+				t.Fatalf("%d of %d messages still pending", len(f.c.Pending()), len(many))
 			}
 			if c.kept == 0 {
 				if len(f.blobs.Blobs) != 0 {

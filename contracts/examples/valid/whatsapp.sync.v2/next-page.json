@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "enabled_chat_refs": [
+    "wachat:synthetic-seller-1",
+    "wachat:synthetic-seller-2"
+  ],
+  "page_size": 100,
+  "since_cursor": "p42"
+}

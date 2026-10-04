@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/contact-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+    "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+    "recipient_scope": "worker:whatsapp"
+  },
+  "phones": [
+    "+10000000000",
+    "+10000000001"
+  ]
+}

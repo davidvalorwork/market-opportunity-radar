@@ -12,10 +12,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -105,7 +107,7 @@ func TestFatalEventsEndWaits(t *testing.T) {
 	c, _ := newClient(t)
 	c.handle(&events.StreamReplaced{})
 	c.handle(&events.LoggedOut{}) // the first fatal event wins
-	if _, _, err := c.Sync(context.Background(), ""); !errors.Is(err, whatsapp.ErrStreamReplaced) {
+	if _, _, err := c.Sync(context.Background(), []string{"wachat:cany"}, 10); !errors.Is(err, whatsapp.ErrStreamReplaced) {
 		t.Fatalf("sync after StreamReplaced: %v", err)
 	}
 	c2, _ := newClient(t)
@@ -153,10 +155,11 @@ func TestMessagesRefsAndSync(t *testing.T) {
 	c.handle(msg(seller, &waE2E.Message{Conversation: proto.String("tres")}, false))
 	c.handle(msg(seller, &waE2E.Message{ImageMessage: &waE2E.ImageMessage{}}, false))
 	c.handle(&events.OfflineSyncCompleted{Count: 3})
-	msgs, done, err := c.Sync(context.Background(), "")
-	if err != nil || !done || len(msgs) != 3 {
-		t.Fatalf("sync %v %v %d", err, done, len(msgs))
+	page, more, err := c.Sync(context.Background(), refs(t, c, seller, other), 100)
+	if err != nil || more || len(page) != 3 {
+		t.Fatalf("sync %v %v %d", err, more, len(page))
 	}
+	msgs := messages(page)
 	if msgs[0].ChatRef != msgs[2].ChatRef || msgs[0].ChatRef == msgs[1].ChatRef {
 		t.Fatal("refs not stable per chat")
 	}
@@ -183,9 +186,9 @@ func TestSyncDeadline(t *testing.T) {
 	c.handle(msg(seller, &waE2E.Message{Conversation: proto.String("uno")}, false))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	msgs, done, err := c.Sync(ctx, "")
-	if err != nil || done || msgs != nil {
-		t.Fatalf("deadline sync: %v %v %v", msgs, done, err)
+	page, more, err := c.Sync(ctx, refs(t, c, seller), 10)
+	if !errors.Is(err, whatsapp.ErrTimeout) || more || page != nil {
+		t.Fatalf("deadline sync: %v %v %v", page, more, err)
 	}
 	if err := c.wait(ctx, &c.paired); !errors.Is(err, whatsapp.ErrTimeout) {
 		t.Fatalf("wait after deadline: %v", err)
@@ -246,7 +249,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	c, dir := newClient(t)
 	c.handle(msg(seller, &waE2E.Message{Conversation: proto.String("uno")}, false))
 	c.handle(&events.OfflineSyncCompleted{})
-	msgs, _, _ := c.Sync(context.Background(), "")
+	msgs, _, _ := c.Sync(context.Background(), refs(t, c, seller), 10)
 	var buf bytes.Buffer
 	if err := c.Snapshot(&buf); err != nil {
 		t.Fatal(err)
@@ -267,6 +270,162 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	defer c2.Close()
 	if jid, err := c2.jidFor(context.Background(), msgs[0].ChatRef); err != nil || jid != seller {
 		t.Fatalf("restored mapping %v %v", jid, err)
+	}
+	// Not acknowledged yet: the message is still pending after the snapshot round trip (gap a).
+	again, more, err := pendingPage(context.Background(), c2.db, []string{msgs[0].ChatRef}, 10)
+	if err != nil || more || len(again) != 1 || again[0] != msgs[0] {
+		t.Fatalf("restored pending %+v %v %v", again, more, err)
+	}
+}
+
+// refs returns the session refs of the given chats (created on first use, stable after).
+func refs(t *testing.T, c *Client, chats ...types.JID) []string {
+	t.Helper()
+	out := make([]string, len(chats))
+	for i, chat := range chats {
+		ref, err := c.chatRef(context.Background(), chat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[i] = ref
+	}
+	return out
+}
+
+func messages(page []whatsapp.Pending) []contract.Message {
+	out := make([]contract.Message, len(page))
+	for i, p := range page {
+		out[i] = p.Message
+	}
+	return out
+}
+
+// Paging: a page smaller than what arrived keeps the rest pending (nothing is lost after
+// WhatsApp got its ack); Ack removes only what the cursor covers; non-enabled chats are dropped.
+func TestPendingPagingAndAck(t *testing.T) {
+	c, _ := newClient(t)
+	other := types.NewJID("10000000002", types.DefaultUserServer)
+	for _, txt := range []string{"uno", "dos", "tres"} {
+		c.handle(msg(seller, &waE2E.Message{Conversation: proto.String(txt)}, false))
+		c.handle(msg(other, &waE2E.Message{Conversation: proto.String("ajeno-" + txt)}, false))
+	}
+	c.handle(&events.OfflineSyncCompleted{})
+	ctx := context.Background()
+	enabled := refs(t, c, seller)
+	page, more, err := c.Sync(ctx, enabled, 2)
+	if err != nil || !more || len(page) != 2 || page[0].Text != "uno" || page[1].Text != "dos" {
+		t.Fatalf("first page %+v %v %v", page, more, err)
+	}
+	var left int
+	c.db.QueryRow(`SELECT count(*) FROM radar_pending WHERE chat_ref <> ?`, enabled[0]).Scan(&left)
+	if left != 0 {
+		t.Fatalf("%d messages of a non-enabled chat kept", left)
+	}
+	// Redelivery of the same page without an ack returns the same messages.
+	if again, _, _ := pendingPage(ctx, c.db, enabled, 2); len(again) != 2 || again[0] != page[0] {
+		t.Fatalf("unacked page changed: %+v", again)
+	}
+	if err := c.Ack(ctx, page[1].Cursor); err != nil {
+		t.Fatal(err)
+	}
+	rest, more, err := pendingPage(ctx, c.db, enabled, 2)
+	if err != nil || more || len(rest) != 1 || rest[0].Text != "tres" {
+		t.Fatalf("second page %+v %v %v", rest, more, err)
+	}
+	for _, bad := range []string{"p999", "x1", "p0", "p01", ""} {
+		if err := c.Ack(ctx, bad); !errors.Is(err, whatsapp.ErrBadCursor) {
+			t.Fatalf("cursor %q: %v", bad, err)
+		}
+	}
+	if err := c.Ack(ctx, page[1].Cursor); err != nil { // replayed cursor: idempotent
+		t.Fatal(err)
+	}
+}
+
+func TestListChatsAndHasChat(t *testing.T) {
+	c, _ := newClient(t)
+	ctx := context.Background()
+	other := types.NewJID("10000000002", types.DefaultUserServer)
+	c.handle(msg(seller, &waE2E.Message{Conversation: proto.String("uno")}, false))
+	c.handle(msg(other, &waE2E.Message{Conversation: proto.String("dos")}, false))
+	own := types.NewJID("10000000000", types.DefaultUserServer)
+	c.cli.Store.Contacts = sqlstore.NewSQLStore(c.container, own) // a paired device has a contact store; synthetic, offline
+	c.db.SetMaxOpenConns(1)                                       // the pragma below applies to this one connection
+	c.db.Exec(`PRAGMA foreign_keys = OFF`)                        // no whatsmeow_device row without real pairing
+	if _, _, err := c.cli.Store.Contacts.PutPushName(ctx, seller, "Tienda Sintetica"); err != nil {
+		t.Fatal(err)
+	}
+	c.db.Exec(`PRAGMA foreign_keys = ON`)
+	resolved, err := c.chatRef(ctx, types.NewJID("10000000003", types.DefaultUserServer)) // as ResolveChat stores it
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all []contract.Chat
+	after := ""
+	for {
+		chats, more, err := c.ListChats(ctx, after, 1)
+		if err != nil || len(chats) != 1 {
+			t.Fatalf("list %v %v", chats, err)
+		}
+		all = append(all, chats...)
+		after = chats[0].ChatRef
+		if !more {
+			break
+		}
+	}
+	if len(all) != 3 {
+		t.Fatalf("chats %+v", all)
+	}
+	names := map[string]string{}
+	for _, ch := range all {
+		names[ch.ChatRef] = ch.DisplayName
+		if strings.Contains(ch.ChatRef, "1000000000") || (ch.ChatRef == resolved) != (ch.LastMessageAt == nil) {
+			t.Fatalf("chat %+v", ch)
+		}
+	}
+	if names[refs(t, c, seller)[0]] != "Tienda Sintetica" || names[resolved] != "" {
+		t.Fatalf("names %v", names)
+	}
+	if _, err := contract.DecodeChatsPrivate(mustJSON(t, contract.ChatsPrivate{SchemaVersion: 1, Chats: all})); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.HasChat(ctx, resolved); !ok {
+		t.Fatal("resolved chat unknown")
+	}
+	if ok, _ := c.HasChat(ctx, "wachat:cunknown"); ok {
+		t.Fatal("unknown chat reported known")
+	}
+}
+
+func TestDisplayNameTruncated(t *testing.T) {
+	if got := displayName(types.ContactInfo{PushName: strings.Repeat("ñ", 200)}); utf8.RuneCountInString(got) != 128 {
+		t.Fatalf("len %d", utf8.RuneCountInString(got))
+	}
+	if got := displayName(types.ContactInfo{FullName: "Full", PushName: "Push"}); got != "Full" {
+		t.Fatal(got)
+	}
+}
+
+// IsOnWhatsApp answers are mapped offline; the call itself needs a connected session.
+func TestRegisteredJID(t *testing.T) {
+	pn := types.NewJID("10000000004", types.DefaultUserServer)
+	lid := types.NewJID("200000000000004", types.HiddenUserServer)
+	cases := []struct {
+		name string
+		resp []types.IsOnWhatsAppResponse
+		want types.JID
+		ok   bool
+	}{
+		{"registered with pn", []types.IsOnWhatsAppResponse{{JID: lid, PhoneNumber: pn, IsIn: true}}, pn, true},
+		{"registered without pn", []types.IsOnWhatsAppResponse{{JID: pn, IsIn: true}}, pn, true},
+		{"not registered", []types.IsOnWhatsAppResponse{{JID: pn, IsIn: false}}, types.JID{}, false},
+		{"no answer", nil, types.JID{}, false},
+		{"two answers for one phone", []types.IsOnWhatsAppResponse{{JID: pn, IsIn: true}, {JID: pn, IsIn: true}}, types.JID{}, false},
+	}
+	for _, c := range cases {
+		if got, ok := registeredJID(c.resp); ok != c.ok || got != c.want {
+			t.Fatalf("%s: %v %v", c.name, got, ok)
+		}
 	}
 }
 

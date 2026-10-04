@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/llm.listing_extraction.v1.json",
+  "title": "Extracción LLM de un anuncio público v1",
+  "description": "Salida estructurada del puerto StructuredLLM para UN texto de anuncio público. Es una propuesta del modelo, no un hecho: authenticity_claim registra lo que el vendedor declara, nunca una verificación; price es precio publicado, no transacción. Todas las claves son obligatorias y 'opcional' se expresa con null (compatible con json_schema strict). Regla de runtime que el schema no puede expresar y el adaptador aplica: evidence_quote debe ser subcadena literal del texto de entrada.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "title", "brand", "model", "variant", "condition", "quantity",
+    "price", "authenticity_claim", "uncertain_fields", "evidence_quote"
+  ],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "brand": {"description": "null si el anuncio no la indica.", "type": ["string", "null"], "minLength": 1, "maxLength": 100},
+    "model": {"type": ["string", "null"], "minLength": 1, "maxLength": 100},
+    "variant": {"description": "Tamaño, color, talla, capacidad u otra variante declarada.", "type": ["string", "null"], "minLength": 1, "maxLength": 100},
+    "condition": {"enum": ["new", "used", "refurbished", "unknown"]},
+    "quantity": {"description": "Unidades ofrecidas; null si no se indica.", "anyOf": [{"type": "integer", "minimum": 1, "maximum": 100000}, {"type": "null"}]},
+    "price": {"description": "Precio publicado; null si no se indica. Importe decimal string, nunca float.", "anyOf": [{"$ref": "common.v1.json#/$defs/money"}, {"type": "null"}]},
+    "authenticity_claim": {"description": "Declaración del vendedor; declarado no equivale a verificado.", "enum": ["declared_original", "declared_replica", "none"]},
+    "uncertain_fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 8,
+      "items": {"enum": ["title", "brand", "model", "variant", "condition", "quantity", "price", "authenticity_claim"]}
+    },
+    "evidence_quote": {"type": "string", "minLength": 1, "maxLength": 280}
+  }
+}
