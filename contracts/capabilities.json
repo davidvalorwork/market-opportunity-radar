@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "platforms": {
+    "facebook": {
+      "opencli": {
+        "discover": {
+          "status": "inspeccionado",
+          "source": "https://github.com/jackwener/OpenCLI/blob/main/clis/facebook/search.js",
+          "checked_on": "2026-10-03",
+          "note": "Busca personas/páginas/posts; no prueba búsqueda de ofertas de terceros. A-F01/A-F02."
+        },
+        "receive_messages": {
+          "status": "inspeccionado",
+          "source": "https://github.com/jackwener/OpenCLI/blob/main/clis/facebook/marketplace-inbox.js",
+          "checked_on": "2026-10-03",
+          "note": "Enumera conversaciones visibles del inbox; no demuestra envío. A-F02."
+        }
+      }
+    },
+    "x": {
+      "opencli": {
+        "reply_dm": {
+          "status": "inspeccionado",
+          "source": "https://github.com/jackwener/OpenCLI/blob/main/clis/twitter/reply-dm.js",
+          "checked_on": "2026-10-03",
+          "note": "Recorre inbox y responde en masa a conversaciones existentes; no dirigido. No ejecutar. A-F08."
+        }
+      }
+    },
+    "threads": {
+      "official_api": {
+        "discover": {
+          "status": "documentado",
+          "source": "https://developers.facebook.com/documentation/threads/keyword-search",
+          "checked_on": "2026-10-03",
+          "note": "Requiere permiso threads_keyword_search; cuota documentada por usuario. A-F11."
+        },
+        "start_dm": {
+          "status": "pendiente",
+          "source": "https://developers.facebook.com/docs/threads/",
+          "checked_on": "2026-10-03",
+          "note": "No se verificó un método DM en las fuentes consultadas. A-F10."
+        }
+      }
+    },
+    "reddit": {
+      "praw": {
+        "start_dm": {
+          "status": "documentado",
+          "source": "https://praw.readthedocs.io/en/stable/code_overview/models/redditor.html#praw.models.Redditor.message",
+          "checked_on": "2026-10-03",
+          "note": "PM/modmail, no Reddit Chat; endpoint no ensayado. A-F13."
+        }
+      },
+      "official_api": {
+        "discover": {
+          "status": "pendiente",
+          "source": "https://support.reddithelp.com/hc/en-us/articles/14945211791892-Reddit-API-Access",
+          "checked_on": "2026-10-03",
+          "note": "Acceso, cuotas y uso comercial sin verificar. A-F14."
+        }
+      }
+    },
+    "bluesky": {
+      "atproto": {
+        "discover": {
+          "status": "inspeccionado",
+          "source": "https://github.com/bluesky-social/atproto/blob/a7c8604d876a200a1e4fa4aec83d4189ac4f1c12/lexicons/app/bsky/feed/searchPosts.json",
+          "checked_on": "2026-10-03",
+          "note": "Lexicon searchPosts; sin cuenta probada. A-F22."
+        },
+        "start_dm": {
+          "status": "inspeccionado",
+          "source": "https://github.com/bluesky-social/atproto/blob/a7c8604d876a200a1e4fa4aec83d4189ac4f1c12/lexicons/chat/bsky/convo/getConvoForMembers.json",
+          "checked_on": "2026-10-03",
+          "note": "Crear conversación tiene efectos: no usar como health check. A-F22."
+        },
+        "reply_dm": {
+          "status": "inspeccionado",
+          "source": "https://github.com/bluesky-social/atproto/blob/a7c8604d876a200a1e4fa4aec83d4189ac4f1c12/lexicons/chat/bsky/convo/sendMessage.json",
+          "checked_on": "2026-10-03",
+          "note": "Contempla bloqueos y mensajes deshabilitados. A-F22."
+        }
+      }
+    },
+    "whatsapp": {
+      "whatsapp_mcp": {
+        "receive_messages": {
+          "status": "documentado",
+          "source": "https://github.com/lharries/whatsapp-mcp",
+          "checked_on": "2026-10-03",
+          "note": "Bridge whatsmeow con QR; salud y cuenta de ensayo pendientes. A-F05."
+        },
+        "reply_dm": {
+          "status": "documentado",
+          "source": "https://github.com/lharries/whatsapp-mcp",
+          "checked_on": "2026-10-03",
+          "note": "No oficial; sin garantía de entrega ni de ausencia de bloqueo. A-F05."
+        }
+      }
+    }
+  }
+}

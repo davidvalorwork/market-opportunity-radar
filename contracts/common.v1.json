@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/common.v1.json",
+  "title": "Definiciones comunes v1",
+  "description": "Solo $defs compartidas; no valida instancias por sí mismo. El dominio .invalid garantiza que los $id nunca se resuelven por red: los validadores precargan los archivos locales.",
+  "$defs": {
+    "schema_version": {"const": 1},
+    "id": {
+      "description": "ULID (Crockford base32, mayúsculas) o UUID en minúsculas.",
+      "type": "string",
+      "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+    },
+    "opaque_ref": {
+      "description": "Referencia seudónima 'espacio:valor'. Nunca teléfono, usuario, token ni secreto en claro; se resuelve server-side.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}:[A-Za-z0-9_-]{1,96}$"
+    },
+    "session_ref": {
+      "description": "Alias de sesión 'plataforma:alias' (ej. whatsapp:radar-pilot). Es un nombre, nunca un secreto ni una ruta.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}:[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utc_datetime": {
+      "description": "RFC 3339 en UTC con sufijo Z.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "https_url": {
+      "description": "URL https sin credenciales (sin '@' en la autoridad).",
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^\\s]*)?$"
+    },
+    "error_code": {
+      "enum": [
+        "needs_reauth", "unsupported", "rate_limited", "blocked", "empty_verified",
+        "timeout", "send_uncertain", "session_conflict", "invalid_input",
+        "budget_exhausted", "internal"
+      ]
+    },
+    "error": {
+      "description": "Error tipado con mensaje acotado y redactado; sin stderr, cookies ni contenido privado.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {"$ref": "#/$defs/error_code"},
+        "message": {"type": "string", "maxLength": 512}
+      }
+    },
+    "status": {
+      "description": "succeeded: completo; partial: incompleto pero útil; failed: sin efecto/resultado; uncertain: efecto externo sin prueba durable (no reintentar a ciegas).",
+      "enum": ["succeeded", "partial", "failed", "uncertain"]
+    },
+    "money": {
+      "description": "Importe decimal como string (nunca float) y moneda ISO 4217.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": {"type": "string", "pattern": "^-?(0|[1-9][0-9]{0,14})(\\.[0-9]{1,8})?$"},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "observed_at", "content_hash"],
+      "properties": {
+        "url": {"$ref": "#/$defs/https_url"},
+        "observed_at": {"$ref": "#/$defs/utc_datetime"},
+        "content_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_ms"],
+      "properties": {
+        "init_ms": {"type": "integer", "minimum": 0},
+        "execution_ms": {"type": "integer", "minimum": 0},
+        "cleanup_ms": {"type": "integer", "minimum": 0},
+        "total_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "versions": {
+      "description": "Versiones de runtime/dependencias (nombre -> versión).",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+      "additionalProperties": {"type": "string", "maxLength": 128}
+    }
+  }
+}

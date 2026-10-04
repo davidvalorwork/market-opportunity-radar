@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "update_id": 100000001,
+  "telegram_user_ref": "tguser:radar-pilot",
+  "command": "buscar",
+  "args": {
+    "query": "perfume 100 ml"
+  }
+}

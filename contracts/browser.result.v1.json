@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/browser.result.v1.json",
+  "title": "Payload browser.result v1",
+  "description": "Resultado del worker navegador. Campos extraídos crudos como strings: normalizar dinero/variantes es trabajo de Python. Nunca cookies, storageState, stderr ni capturas.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "records", "timings", "versions"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "status": {"$ref": "common.v1.json#/$defs/status"},
+    "error": {"$ref": "common.v1.json#/$defs/error"},
+    "records": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fields", "evidence"],
+        "properties": {
+          "fields": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
+            "additionalProperties": {"type": "string", "maxLength": 4096}
+          },
+          "evidence": {"$ref": "common.v1.json#/$defs/evidence"}
+        }
+      }
+    },
+    "timings": {"$ref": "common.v1.json#/$defs/timings"},
+    "versions": {"$ref": "common.v1.json#/$defs/versions"}
+  },
+  "if": {"properties": {"status": {"const": "succeeded"}}},
+  "then": {"not": {"required": ["error"]}},
+  "else": {"required": ["error"]}
+}

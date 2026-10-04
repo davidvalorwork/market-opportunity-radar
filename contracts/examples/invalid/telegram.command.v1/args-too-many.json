@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "update_id": 100000001,
+  "telegram_user_ref": "tguser:radar-pilot",
+  "command": "buscar",
+  "args": {
+    "k0": "v",
+    "k1": "v",
+    "k2": "v",
+    "k3": "v",
+    "k4": "v",
+    "k5": "v",
+    "k6": "v",
+    "k7": "v",
+    "k8": "v"
+  }
+}

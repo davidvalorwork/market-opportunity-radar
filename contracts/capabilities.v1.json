@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/capabilities.v1.json",
+  "title": "Registro de capacidades v1",
+  "description": "plataforma -> backend -> operación -> estado con fuente y fecha. Documentado no significa probado; una operación ausente no está habilitada.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "platforms"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "platforms": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 16,
+        "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+        "additionalProperties": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": ["discover", "read_listing", "public_reply", "start_dm", "reply_dm", "receive_messages"]
+          },
+          "additionalProperties": {"$ref": "#/$defs/entry"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "checked_on"],
+      "properties": {
+        "status": {
+          "enum": ["documentado", "inspeccionado", "probado_local", "probado_real", "inferencia", "pendiente", "descartado"]
+        },
+        "source": {"$ref": "common.v1.json#/$defs/https_url"},
+        "checked_on": {"$ref": "common.v1.json#/$defs/date"},
+        "note": {"type": "string", "maxLength": 512}
+      }
+    }
+  }
+}

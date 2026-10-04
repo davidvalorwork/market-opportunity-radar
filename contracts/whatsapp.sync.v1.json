@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.sync.v1.json",
+  "title": "Payload whatsapp.sync v1",
+  "description": "Sincroniza solo chats habilitados explícitamente; no lee el inbox completo por defecto.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "enabled_chat_refs"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "enabled_chat_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {"$ref": "common.v1.json#/$defs/opaque_ref"}
+    },
+    "since_cursor": {"type": "string", "pattern": "^[A-Za-z0-9_.:=-]{1,256}$"}
+  }
+}

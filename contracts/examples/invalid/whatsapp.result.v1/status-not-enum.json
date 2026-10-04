@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "status": "sent",
+  "pairing": {
+    "code_delivered": true
+  },
+  "session_version": 1
+}

@@ -27,6 +27,8 @@ data/private/
 downloads/
 __pycache__/
 *.pyc
+*.egg-info/
+.hypothesis/
 .pytest_cache/
 .ruff_cache/
 .venv/

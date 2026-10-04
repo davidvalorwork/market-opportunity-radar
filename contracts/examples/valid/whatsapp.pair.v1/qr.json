@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "declared_phone": "+10000000000",
+  "notify": "tgchat:radar-pilot-owner",
+  "method": "qr"
+}

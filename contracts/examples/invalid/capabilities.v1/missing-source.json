@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "platforms": {
+    "whatsapp": {
+      "whatsapp_mcp": {
+        "receive_messages": {
+          "status": "documentado",
+          "checked_on": "2026-10-03"
+        }
+      }
+    }
+  }
+}

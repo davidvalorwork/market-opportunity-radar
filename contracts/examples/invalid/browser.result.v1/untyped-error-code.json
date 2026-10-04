@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "status": "failed",
+  "error": {
+    "code": "portable_session_or_extraction_failed"
+  },
+  "records": [],
+  "timings": {
+    "total_ms": 1200
+  },
+  "versions": {
+    "node": "24.21.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "declared_phone": "+10000000000",
+  "notify": "+10000000000",
+  "method": "code"
+}

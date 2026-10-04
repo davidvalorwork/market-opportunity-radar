@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "update_id": 100000002,
+  "telegram_user_ref": "tguser:radar-pilot",
+  "command": "callback",
+  "args": {},
+  "callback_ref": "approve:01J9ZX3Q4R5S6T7V8W9XAYBZC2"
+}

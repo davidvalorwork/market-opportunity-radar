@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radar"
+version = "0.0.0"
+description = "Market Opportunity Radar: shared contracts skeleton, no commerce pipeline yet."
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["jsonschema==4.26.0"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "hypothesis==6.168.3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]

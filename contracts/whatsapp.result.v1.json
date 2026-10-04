@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.result.v1.json",
+  "title": "Payload whatsapp.result v1",
+  "description": "Resultado de pair/sync/send. uncertain + send_uncertain cuando no hay prueba durable del envío: reconciliar, no reintentar. El código de vinculación no tiene campo aquí; solo se informa si fue entregado.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "status": {"$ref": "common.v1.json#/$defs/status"},
+    "error": {"$ref": "common.v1.json#/$defs/error"},
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_delivered"],
+      "properties": {"code_delivered": {"type": "boolean"}}
+    },
+    "messages": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chat_ref", "message_ref", "text", "observed_at"],
+        "properties": {
+          "chat_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+          "message_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+          "text": {"type": "string", "maxLength": 4096},
+          "observed_at": {"$ref": "common.v1.json#/$defs/utc_datetime"}
+        }
+      }
+    },
+    "provider_message_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+    "session_version": {"type": "integer", "minimum": 0}
+  },
+  "if": {"properties": {"status": {"const": "succeeded"}}},
+  "then": {"not": {"required": ["error"]}},
+  "else": {"required": ["error"]}
+}

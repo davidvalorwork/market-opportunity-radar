@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "capability_id": "fixture.direct.read_listing",
+  "target": {
+    "origin": "http://127.0.0.1:8080",
+    "path": "/listings?q=perfume"
+  },
+  "fixture_only": true,
+  "mode": "direct",
+  "batch": 3,
+  "deadline_ms": 60000
+}

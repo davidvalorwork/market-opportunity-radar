@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "session_ref": "whatsapp:radar-pilot",
+  "version": 1,
+  "state_type": "whatsmeow_sqlite",
+  "created_at": "2026-10-03T12:00:00Z",
+  "last_verified_at": null,
+  "renew_after": null,
+  "allowed_origins": [],
+  "allowed_operations": [
+    "pair",
+    "sync",
+    "send"
+  ],
+  "producer_version": "sessions-admin-0.0.0"
+}
