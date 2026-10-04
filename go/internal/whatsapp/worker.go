@@ -17,6 +17,9 @@ import (
 // PairWindow stays under the ~160 s login websocket lifetime (B-F021).
 const PairWindow = 150 * time.Second
 
+// DefaultSaveBudget bounds a sync's session save when Worker.SaveBudget is zero.
+const DefaultSaveBudget = 5 * time.Second
+
 type Worker struct {
 	Client   Client
 	Leases   LeaseStore
@@ -32,6 +35,10 @@ type Worker struct {
 	// Synced messages are sealed to ResultRecipients and referenced with ResultScope.
 	ResultRecipients []*age.X25519Recipient
 	ResultScope      string
+	// SaveBudget bounds the session save that ends every sync (DefaultSaveBudget if zero). It
+	// runs on the caller's context, not the job deadline, so a sync that timed out can still
+	// save what it received; the caller's own deadline (the Lambda's) still caps it.
+	SaveBudget time.Duration
 }
 
 // Handle runs one decoded job. It never logs: private payloads hold phones, codes and message text.
@@ -41,6 +48,7 @@ func (w *Worker) Handle(ctx context.Context, env contract.Envelope, payload any)
 	if !time.Now().Before(env.Deadline.Time) {
 		err = contract.Fail(contract.Timeout, "deadline expired before start")
 	} else {
+		outer := ctx
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, env.Deadline.Time)
 		defer cancel()
@@ -48,7 +56,7 @@ func (w *Worker) Handle(ctx context.Context, env contract.Envelope, payload any)
 		case *contract.Pair:
 			r, err = w.pair(ctx, env, p)
 		case *contract.Sync:
-			r, err = w.sync(ctx, env, p)
+			r, err = w.sync(ctx, outer, env, p)
 		case *contract.Send:
 			r, err = w.send(ctx, env, p)
 		case *contract.ListChats:
@@ -158,6 +166,21 @@ func (w *Worker) save(ctx context.Context, env contract.Envelope) (int, error) {
 	return w.Sessions.Save(ctx, env.SessionRef, env.ExpectedVersion, buf.Bytes())
 }
 
+// saveFailed reports a failed session save after a sync: orig's code (the save error's when
+// orig is nil), session_conflict when the version CAS was lost, and a message saying that
+// pending messages received in this run live only in this invocation's local copy.
+func saveFailed(orig, serr error) error {
+	if orig == nil {
+		orig = serr
+	}
+	e := toError(orig)
+	code := e.Code
+	if errors.Is(serr, ErrConflict) {
+		code = contract.SessionConflict
+	}
+	return contract.Fail(code, e.Message+"; session save failed, pending messages received in this run were not persisted")
+}
+
 // jidUser extracts the phone digits from "user[.agent][:device]@server".
 // wameow already returns types.JID.User (no "@"), which passes through unchanged; parsing covers fakes.
 func jidUser(jid string) string {
@@ -220,8 +243,18 @@ func (w *Worker) pair(ctx context.Context, env contract.Envelope, p *contract.Pa
 // previous page, the page stops at page_size or the 32 KiB private budget, and the rest stays
 // pending in the session state (next_cursor/has_more). v1 has no cursor: everything must fit
 // one result or it is budget_exhausted, and the session is still saved so nothing received is lost.
-func (w *Worker) sync(ctx context.Context, env contract.Envelope, p *contract.Sync) (contract.Result, error) {
-	var r contract.Result
+//
+// Once Connect is called the client may have stored messages it already acked to WhatsApp
+// (wameow: radar_pending + SynchronousAck), so a failing sync still saves the session, on
+// outer with SaveBudget (the job ctx may be expired), and keeps its own error code; what was
+// received stays pending for the next page. Two errors never save:
+//   - ErrStreamReplaced: another client owns the device and its keys/ratchets have moved on;
+//     our snapshot would roll that state back (or race a writer that skips our CAS).
+//   - ErrLoggedOut: whatsmeow deletes the device store concurrently with the event, so the
+//     snapshot is nondeterministic, and the session needs a new pairing anyway.
+//
+// Messages acked before either event in that run are lost (needs a pending-only export).
+func (w *Worker) sync(ctx, outer context.Context, env contract.Envelope, p *contract.Sync) (r contract.Result, err error) {
 	v2 := env.SchemaVersion == contract.SchemaV2
 	_, release, err := w.lease(ctx, env.SessionRef)
 	if err != nil {
@@ -234,10 +267,34 @@ func (w *Worker) sync(ctx context.Context, env contract.Envelope, p *contract.Sy
 		limit, r.NextCursor = p.PageSize, p.SinceCursor
 		if p.SinceCursor != "" {
 			if err := w.Client.Ack(ctx, p.SinceCursor); err != nil {
-				return r, err
+				return r, err // not connected: nothing received, no save
 			}
 		}
 	}
+	saved := false
+	save := func() error {
+		saved = true
+		budget := w.SaveBudget
+		if budget <= 0 {
+			budget = DefaultSaveBudget
+		}
+		sctx, cancel := context.WithTimeout(outer, budget)
+		defer cancel()
+		v, err := w.save(sctx, env)
+		if err != nil {
+			return err
+		}
+		r.SessionVersion = v
+		return nil
+	}
+	// Registered after Close, so it runs first (LIFO): the snapshot needs the open client.
+	defer func() {
+		if err != nil && !saved && !errors.Is(err, ErrStreamReplaced) && !errors.Is(err, ErrLoggedOut) {
+			if serr := save(); serr != nil {
+				err = saveFailed(err, serr)
+			}
+		}
+	}()
 	if err := w.Client.Connect(ctx); err != nil {
 		return r, err
 	}
@@ -257,8 +314,8 @@ func (w *Worker) sync(ctx context.Context, env contract.Envelope, p *contract.Sy
 	}
 	if (!v2 && (more || n < len(page))) || (len(page) > 0 && n == 0) {
 		// Unreturned messages stay pending in the session; saving it keeps them for a v2 sync.
-		if r.SessionVersion, err = w.save(ctx, env); err != nil {
-			return r, err
+		if err := save(); err != nil {
+			return r, saveFailed(nil, err)
 		}
 		return r, contract.Fail(contract.BudgetExhausted, "synced messages exceed one v1 result; use whatsapp.sync v2 paging")
 	}
@@ -279,9 +336,12 @@ func (w *Worker) sync(ctx context.Context, env contract.Envelope, p *contract.Sy
 		}
 	}
 	r.HasMore = v2 && (more || n < len(page))
-	// The private_ref stays in the result even if the snapshot save fails, so messages are not lost.
-	r.SessionVersion, err = w.save(ctx, env)
-	return r, err
+	// The private_ref stays in the result even if the snapshot save fails, so the returned
+	// messages are not lost; the pending rest of this run is, and the error says so.
+	if err := save(); err != nil {
+		return r, saveFailed(nil, err)
+	}
+	return r, nil
 }
 
 // listChats pages through the chats the session knows. Read-only and offline: no lease,

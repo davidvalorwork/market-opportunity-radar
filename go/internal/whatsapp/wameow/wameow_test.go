@@ -195,6 +195,34 @@ func TestSyncDeadline(t *testing.T) {
 	}
 }
 
+// B7b: a message stored (and so acked) before the deadline is in the snapshot the worker
+// takes after a timed-out Sync, and pages out of the restored session.
+func TestSnapshotAfterSyncDeadlineKeepsPending(t *testing.T) {
+	c, _ := newClient(t)
+	c.handle(msg(seller, &waE2E.Message{Conversation: proto.String("uno")}, false))
+	enabled := refs(t, c, seller)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := c.Sync(ctx, enabled, 10); !errors.Is(err, whatsapp.ErrTimeout) {
+		t.Fatalf("deadline sync: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := c.Snapshot(&buf); err != nil {
+		t.Fatal(err)
+	}
+	dir2 := t.TempDir()
+	os.WriteFile(filepath.Join(dir2, DBFile), buf.Bytes(), 0o600)
+	c2, err := New(context.Background(), dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+	page, more, err := pendingPage(context.Background(), c2.db, enabled, 10)
+	if err != nil || more || len(page) != 1 || page[0].Text != "uno" {
+		t.Fatalf("restored pending %+v %v %v", page, more, err)
+	}
+}
+
 func TestWaitPairedReturnsJIDUser(t *testing.T) {
 	c, _ := newClient(t)
 	c.handle(&events.PairSuccess{ID: types.NewADJID("10000000000", 0, 12), LID: types.NewJID("200000000000001", types.HiddenUserServer)})

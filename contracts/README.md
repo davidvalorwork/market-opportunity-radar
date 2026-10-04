@@ -35,6 +35,7 @@ limpio y corre la suite desde un directorio sin `src/` ni `pyproject.toml`.
 | `browser.read.v1` / `browser.result.v1` | Lectura sin efectos del worker navegador y su resultado |
 | `whatsapp.pair/sync/send/result.v1` | Transporte: vincular, sincronizar chats habilitados, envío aprobado, resultado |
 | `whatsapp.pair.private.v1`, `whatsapp.send.private.v1`, `whatsapp.messages.private.v1` | **Payloads privados** (ver abajo) |
+| `llm.listing_extraction.v1` | Salida del puerto StructuredLLM para UN anuncio público: título, marca, modelo, variante, condición, cantidad, precio publicado (dinero decimal string), autenticidad **declarada** (nunca verificada), campos inciertos y cita de evidencia. Todas las claves obligatorias; "opcional" = `null` (compatible con json_schema strict). El adaptador exige además que `evidence_quote` sea subcadena literal de la entrada (regla de runtime). Propuesta del modelo, no hecho |
 | `telegram.command.v1` | Comando ya autenticado por el bot |
 | `session.manifest.v1` | Metadatos del bundle cifrado (nunca cookies ni claves) |
 | `capabilities.v1` | Registro plataforma → backend → operación → estado, con fuente y fecha |

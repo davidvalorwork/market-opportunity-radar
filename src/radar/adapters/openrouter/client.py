@@ -248,10 +248,14 @@ class OpenRouterLLM:
     prompts: prompt_version -> Prompt(system, schema_name, schema_version).
     transport: ``(url, data, headers, timeout) -> (status, headers, body)``.
     allowed_models: optional allowlist on top of ``prices``.
+    price_cap: send ``provider.max_price`` = ``prices`` ($/M) so OpenRouter never routes to a
+        pricier endpoint; ``prices`` then act as caps and computed costs are upper bounds.
+    reasoning_off: models that get ``reasoning: {enabled: false}`` (only where not mandatory).
     """
 
     def __init__(self, *, secrets, cache, clock, prices, prompts=PROMPTS, transport=urllib_transport,
-                 enabled=False, allowed_models=None, secret_ref="openrouter_api_key", timeout=30):
+                 enabled=False, allowed_models=None, secret_ref="openrouter_api_key", timeout=30,
+                 price_cap=False, reasoning_off=()):
         for model, price in prices.items():
             if (not isinstance(price, tuple) or len(price) != 2
                     or not all(isinstance(p, Decimal) and p.is_finite() and p >= 0 for p in price)):
@@ -261,6 +265,7 @@ class OpenRouterLLM:
         self._enabled = enabled is True
         self._allowed = None if allowed_models is None else frozenset(allowed_models)
         self._secret_ref, self._timeout = secret_ref, timeout
+        self._price_cap, self._reasoning_off = price_cap is True, frozenset(reasoning_off)
 
     def __repr__(self):
         return f"OpenRouterLLM(enabled={self._enabled}, secret_ref={self._secret_ref!r})"
@@ -285,6 +290,11 @@ class OpenRouterLLM:
             "max_tokens": request.max_tokens,
             "provider": dict(PERSONAL_PROVIDER if personal else PUBLIC_PROVIDER),
         }
+        if self._price_cap:
+            price_in, price_out = self._prices[request.model_ref]
+            body["provider"]["max_price"] = {"prompt": float(price_in), "completion": float(price_out)}
+        if request.model_ref in self._reasoning_off:
+            body["reasoning"] = {"enabled": False}
         data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         worst = self._cost(request.model_ref, len(data) + MESSAGE_OVERHEAD_TOKENS * len(body["messages"]),
                            request.max_tokens)
