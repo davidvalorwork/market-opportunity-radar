@@ -39,14 +39,20 @@ CREATE TABLE IF NOT EXISTS conversation_wire_preparations(owner TEXT,op TEXT,doc
 """
 
 
+SELF_TEST_TEXT = 'Prueba local de Market Opportunity Radar: Telegram → WhatsApp.'
+SELF_TEST_PURPOSE = 'purpose:selftest'
+
+
 class SQLiteConversations:
     def __init__(self, store, *, vault, capabilities, clock, channels=(), synthetic_authorized=False,
-                 daily_messages=20, min_interval_seconds=10, private_scope='worker:conversations'):
+                 daily_messages=20, min_interval_seconds=10, private_scope='worker:conversations', allow_self_test=False,
+                 session_trial_authorizer=None):
         if vault is None or capabilities is None:
             raise ConversationError('private_backend_and_capabilities_required')
         if (type(daily_messages) is not int or not 1 <= daily_messages <= 1000
                 or type(min_interval_seconds) is not int or not 1 <= min_interval_seconds <= 3600
-                or type(synthetic_authorized) is not bool
+                or type(synthetic_authorized) is not bool or type(allow_self_test) is not bool
+                or (session_trial_authorizer is not None and not callable(session_trial_authorizer))
                 or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}:[a-z][a-z0-9_-]{0,63}', private_scope)):
             raise ConversationError('invalid_configuration')
         self.store, self.vault, self.capabilities = store, vault, capabilities
@@ -59,6 +65,8 @@ class SQLiteConversations:
         self.synthetic_authorized = synthetic_authorized
         self.daily_messages, self.min_interval_seconds = daily_messages, min_interval_seconds
         self.private_scope = private_scope
+        self.allow_self_test = allow_self_test
+        self.session_trial_authorizer = session_trial_authorizer
         self.store.db.executescript(DDL)
 
     def _now(self, supplied):
@@ -99,11 +107,27 @@ class SQLiteConversations:
         cap = self.capabilities.get(owner_ref=authority.owner_ref, platform=account.channel, backend=account.backend,
                                     operation=operation, session_ref=account.session_ref)
         allowed = ('probado_local', 'probado_real') if channel.fixture_only else ('probado_real',)
+        trial = (not channel.fixture_only and cap is not None and cap.status == 'documentado'
+            and self.session_trial_authorizer is not None
+            and self.session_trial_authorizer(authority=authority,account=account,operation=operation) is True)
         if (cap is None or cap.authorized is not True or cap.status not in allowed
                 or (cap.platform, cap.backend, cap.operation) != (account.channel, account.backend, operation)
                 or not 0 <= (utc(now).date() - cap.checked_on).days <= 7):
-            raise ConditionalConflict('conversation_capability_unverified')
+            if not (trial and cap.authorized is True and
+                    (cap.platform,cap.backend,cap.operation)==(account.channel,account.backend,operation)
+                    and 0 <= (utc(now).date()-cap.checked_on).days <= 7):
+                raise ConditionalConflict('conversation_capability_unverified')
         return account
+
+    def _trial_self_only(self, authority, account, operation, recipient, purpose, text):
+        """Session trial is not proof of messaging capability or a broad grant."""
+        cap = self.capabilities.get(owner_ref=authority.owner_ref,platform=account.channel,
+            backend=account.backend,operation=operation,session_ref=account.session_ref)
+        if (not self.channels[(account.channel,account.backend)].fixture_only and
+                cap is not None and cap.status != 'probado_real' and not (
+                self.allow_self_test and recipient == account.self_recipient_ref and
+                purpose == SELF_TEST_PURPOSE and text == SELF_TEST_TEXT)):
+            raise ConversationError('trial_self_test_only')
 
     def register_account(self, *, authority, account, now):
         now = self._now(now)
@@ -289,7 +313,9 @@ class SQLiteConversations:
         rows, identities = [], set()
         for draft in drafts:
             recipient, identity_ref, identity = self._chat(authority.owner_ref, account.account_ref, draft.chat_refs[0])
-            if recipient == account.self_recipient_ref:
+            self._trial_self_only(authority,account,'compose',recipient,draft.purpose_ref,draft.text)
+            if recipient == account.self_recipient_ref and not (self.allow_self_test and
+                    draft.purpose_ref == SELF_TEST_PURPOSE and draft.text == SELF_TEST_TEXT):
                 raise ConversationError('self_contact_forbidden')
             key = (recipient, draft.purpose_ref)
             if key in identities:
@@ -323,7 +349,10 @@ class SQLiteConversations:
             raise ConditionalConflict('batch_binding')
         for row in body['rows']:
             recipient, identity_ref, identity = self._chat(authority.owner_ref, account.account_ref, row['chat_ref'])
-            if (recipient == account.self_recipient_ref or recipient != row['recipient_ref']
+            self._trial_self_only(authority,account,operation,recipient,row['purpose_ref'],row['text'])
+            self_denied = recipient == account.self_recipient_ref and not (self.allow_self_test and
+                row['purpose_ref'] == SELF_TEST_PURPOSE and row['text'] == SELF_TEST_TEXT)
+            if (self_denied or recipient != row['recipient_ref']
                     or self._pointer(identity_ref) != row['identity_ref'] or identity != row['identity']):
                 raise ConditionalConflict('recipient_binding_changed')
         return account, body

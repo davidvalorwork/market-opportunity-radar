@@ -277,10 +277,21 @@ def from_config(*,state_db,phone_allowlist,secret,config_path,api=None):
             conversations=conversations,host_authority=host,clock=clock,interpreter=None if router.parser_enabled else extensions.get('interpreter',json_interpreter),
             source_refs=tuple(row.source_ref for row in specs),scheduler=scheduler,template_resolver=template,contacts=extensions.get('contacts'),
             query_policy=extensions.get('query_policy'),inbox_sources=extensions.get('inbox_sources'),handlers=extensions.get('handlers'))
+        runtime.input_handlers = dict(extensions.get('input_handlers', {}))
+        seconds = config.get('input_lease_seconds', 60)
+        if type(seconds) is not int or not 60 <= seconds <= 300:
+            raise GeneralError('general_configuration')
+        runtime.input_lease_seconds = seconds
+        reader_factory = extensions.get('reader_factory')
+        if reader_factory is not None:
+            runtime.reader = reader_factory(reader=reader, access=reader.access, sink=sink)
         if api is not None:
             runtime.delivery = TelegramDelivery(api,directory,report_view)
         if extensions.get('configure'):
             extensions['configure'](runtime=runtime,directory=directory,vault=vault)
+        controller = extensions.get('pilot_controller')
+        if controller is not None:
+            controller.configure(runtime=runtime,directory=directory,vault=vault,config=config,api=api)
         ingress = PrivateIngress(store,directory,task_view)
         webhook = GeneralWebhook(secret=secret,unit_of_work=ingress,idempotency=GeneralIdempotency(store),users=directory,
             invites=NoInvites(),phone_allowlist=phone_allowlist,clock=clock.now)
@@ -289,7 +300,10 @@ def from_config(*,state_db,phone_allowlist,secret,config_path,api=None):
             for (actor,) in actors:
                 try:
                     runtime.tick_schedules(owner,actor)
-                    runtime.pump(owner,actor)
+                    runtime.pump(owner,actor,max_steps=1 if controller is not None else 20)
+                    if controller is not None:
+                        controller.dispatch(owner,actor)
+                        runtime.deliver(owner,actor)
                 except (GeneralError,ConditionalConflict,TaskError):
                     continue  # Status/ingress retained; no authority bypass.
         wiring = PollingWiring(store,webhook,secret,task_view,owner,tick)

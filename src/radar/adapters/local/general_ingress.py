@@ -18,6 +18,13 @@ from .telegram import Idempotency
 
 
 INPUT = ContextVar('general_private_input', default=None)
+PILOT_ROUTES = {
+    'vincular': 'whatsapp_pair', 'chats': 'whatsapp_chats',
+    'leer': 'whatsapp_read', 'responder': 'whatsapp_draft',
+    'prueba_whatsapp': 'whatsapp_self_test', 'estado': 'pilot_status',
+    'ayuda': 'pilot_help', 'investigar': 'research', 'mas': 'research_continue',
+    'refrescar': 'research_refresh', 'limites': 'research_limits',
+}
 DDL = """
 CREATE TABLE IF NOT EXISTS general_inputs(owner TEXT,actor TEXT,ref TEXT,hash TEXT,pointer TEXT,deadline TEXT,state TEXT,task TEXT,reason TEXT,PRIMARY KEY(owner,ref));
 CREATE TABLE IF NOT EXISTS general_receipts(key TEXT PRIMARY KEY,owner TEXT,actor TEXT,hash TEXT,input TEXT);
@@ -93,8 +100,8 @@ class GeneralWebhook(Webhook):
                 and 'contact' not in message and isinstance(text, str) and text.strip()):
             matched = COMMAND_TEXT.fullmatch(text.strip())
             name, rest = (matched.group(1).lower(), matched.group(2) or '') if matched else (None, text)
-            route = 'tasks' if name == 'tareas' else 'request'
-            if name in ('pedir', 'buscar', 'tareas') or (name is None and not text.lstrip().startswith('/')):
+            route = PILOT_ROUTES.get(name, 'tasks' if name == 'tareas' else 'request')
+            if name in PILOT_ROUTES or name in ('pedir', 'buscar', 'tareas') or (name is None and not text.lstrip().startswith('/')):
                 if len(text.encode('utf-8')) > 4096:
                     return self._reject(key, {'method': 'sendMessage', 'chat_id': chat['id'], 'text': 'Pedido demasiado largo.'})
                 token = INPUT.set({'text': rest, 'route': route})

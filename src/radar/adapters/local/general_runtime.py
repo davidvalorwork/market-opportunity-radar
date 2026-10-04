@@ -87,7 +87,7 @@ class GeneralRuntime:
                  conversations, host_authority, clock, interpreter=None, source_refs=(),
                  scheduler=None, template_resolver=None, contacts=None, fixture_dispatcher=None,
                  delivery=None, fixture=False, max_runs=100, max_attempts=3, query_policy=None,
-                 inbox_sources=None, handlers=None):
+                 inbox_sources=None, handlers=None, input_handlers=None, input_lease_seconds=60):
         if (not callable(host_authority) or any(value is None for value in (tasks, router, vault, source_sink, report_vault, reader, conversations, clock))
                 or type(fixture) is not bool or type(max_runs) is not int or not 1 <= max_runs <= 1000
                 or type(max_attempts) is not int or not 1 <= max_attempts <= 5):
@@ -103,6 +103,10 @@ class GeneralRuntime:
         self.max_runs, self.max_attempts = max_runs, max_attempts
         self.query_policy, self.inbox_sources = query_policy, dict(inbox_sources or {})
         self.handlers = dict(handlers or {})  # Trusted host handlers, not LLM code.
+        if type(input_lease_seconds) is not int or not 60 <= input_lease_seconds <= 300:
+            raise GeneralError('general_configuration')
+        self.input_handlers = dict(input_handlers or {})
+        self.input_lease_seconds = input_lease_seconds
         store.db.executescript(DDL)
 
     def authority(self, owner, actor):
@@ -158,8 +162,9 @@ class GeneralRuntime:
             raise GeneralError('general_limit')
         rows = self.store.db.execute("SELECT actor,ref,pointer,deadline,state FROM general_inputs WHERE owner=? AND state IN ('accepted','interpreting','parsed') ORDER BY ref LIMIT ?", (owner, limit)).fetchall()
         for actor, input_ref, pointer, deadline, state in rows:
+            args = {}
             lease = self.store.acquire(owner_ref=owner,session_ref='ingress:'+input_ref.split(':',1)[1],
-                worker_ref='worker:ingress-a'+uuid4().hex,now=self.clock.now(),ttl=timedelta(seconds=60))
+                worker_ref='worker:ingress-a'+uuid4().hex,now=self.clock.now(),ttl=timedelta(seconds=self.input_lease_seconds))
             if lease is None:
                 continue
             try:
@@ -189,6 +194,19 @@ class GeneralRuntime:
                 elif args.get('route') == 'tasks':
                     self.list_schedules(owner, actor)
                     task_ref = None
+                elif args.get('route') in self.input_handlers:
+                    # Registered host commands only. Mark before IO: an interrupted
+                    # handler must not be blindly replayed (especially an effect).
+                    with self.store.transaction():
+                        self.authority(owner, actor)
+                        changed = self.store.db.execute("UPDATE general_inputs SET state='interpreting' WHERE owner=? AND ref=? AND state='accepted'", (owner, input_ref)).rowcount
+                        if not changed:
+                            continue
+                    task_ref = self.input_handlers[args['route']](runtime=self, authority=authority,
+                        event_ref=input_ref, text=args.get('text', ''), lease=lease)
+                    self.authority(owner, actor)
+                    if not self.store.is_current(owner_ref=owner, lease=lease, now=self.clock.now()):
+                        raise GeneralError('input_lease_lost')
                 elif name == 'pedir':
                     if self.interpreter is None and self.router.parser_enabled is not True:
                         raise GeneralError('interpreter_not_configured')
@@ -225,6 +243,11 @@ class GeneralRuntime:
                 code = control_reason(str(error)) if isinstance(error,(GeneralError,TaskError)) else 'authority_or_state_denied'
                 if self.store.is_current(owner_ref=owner,lease=lease,now=self.clock.now()):
                     self.store.db.execute("UPDATE general_inputs SET state='blocked',reason=? WHERE owner=? AND ref=?", (code, owner, input_ref))
+                    if args.get('route') in self.input_handlers:
+                        try:
+                            self.notify(owner, actor, {'text': 'Operación detenida: ' + code}, key=input_ref + ':blocked')
+                        except (ConditionalConflict, GeneralError, TaskError):
+                            pass  # A revoked owner receives no UI; blocked state remains.
             except Exception:
                 # Unknown storage/failpoint errors stay visible; no ACK/success fiction.
                 raise GeneralError('general_ingress_failed') from None

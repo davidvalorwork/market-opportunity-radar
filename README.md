@@ -354,6 +354,17 @@ locales no demuestran una corrida de GitHub Actions ni validan cuentas reales.
 
 ## Límites y siguiente entrega
 
+### Piloto integrado posterior a A3
+
+[Piloto Telegram → investigación → WhatsApp](docs/testing/TELEGRAM_PILOT.md):
+host local opt-in, comandos determinísticos, caché compacta persistente y
+aprobación exacta de mensajes. `/mas` conserva la investigación y omite contenido
+visto; `/limites` controla resultados, consultas, rondas, bytes y tiempo.
+No requiere llamadas LLM para estos comandos. Sesión WhatsApp y envío real
+son gates independientes: una copia compatible en Docker sin red no acredita
+un trayecto Telegram → proveedor completo. El piloto no interpreta pedidos
+arbitrarios en lenguaje natural ni incorpora todas las redes sociales.
+
 El incremento A3 permite normalizar fixtures y producir informes reproducibles
 de costos sin acciones externas. Falta revisar/integrar la rama y construir
 conectores de fuentes autorizadas y adaptadores wire para las acciones. Después
