@@ -47,3 +47,11 @@ El radar **no depende** de nada de esto. Sus secretos ya son copias propias en
   `aws dynamodb delete-backup --region us-east-1 --backup-arn <arn>`.
 - El repositorio local `~/projects/inventarioIA` y su remoto en GitHub no se
   tocan con estos pasos; decidir aparte.
+
+## Estado (2026-10-03)
+
+- Paso 4 ejecutado por el usuario: los tres parámetros `/inventarioia/*` están
+  borrados. Los del radar (`/market-radar/*`) siguen presentes y legibles
+  (verificado sin mostrar valores).
+- Pendientes del usuario: pasos 2 (`sam delete`) y 3 (log groups). Mientras el
+  stack exista, sus Lambdas fallan al leer secretos, lo cual es esperado.
