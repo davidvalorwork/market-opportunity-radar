@@ -43,7 +43,7 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A3/A3b | Flujo persistente y correcciones obligatorias de B | Código corregido y probado en candidato. Nueva revisión B e integración pendientes; A3b no es trabajo de código por rehacer |
 | A4 | Contratos, preflight, fixtures, límites/cleanup, Docker/RIE | Integrada/probada para fixtures. Helper age/sesiones reales y fuentes autorizadas siguen pendientes; F6 completo no se deduce solo del incremento A4 |
 | A0g | Alcance general coherente, glosario/plan, tests | Candidato documental `d38416b` listo; revisión/integración pendientes |
-| A12 | Polling durable, takeover explícito, reutilizar webhook; prueba propietario/bot real | Preparación aislada sobre A3 corregida. Artefacto/tests y prueba real todavía deben verificarse; no considerar factory sin cablear como éxito |
+| A12 | Polling durable, takeover explícito, reutilizar webhook; prueba propietario/bot real | Candidato `11bf9ba`: coordinador comprobó 52/52 área y suite 588 + 238 subtests (34.94 s), docs/diff verdes. Vault/factory/tick reales, revisión B e integración pendientes; no conectado al bot real |
 | A6 | Router general tipado, registro, budgets, confirm/correct/cancel, callbacks; tests | Preparación aislada; entrega, revisión schema/prompt por B y cableado webhook todavía pendientes |
 | A8 | Fuentes web/social generales por capacidades, preflight, lectura/dedupe/evidencia | No implementada en main. Cashea opcional; no limitar a talleres. Cada adaptador requiere pruebas/capacidades, no una lista de redes |
 | A7 | Descubrimiento/contacto/seguimiento genéricos, aprobaciones y comparación cuando aplica | No implementada; depende A6/A8 y gate Go. Cotización es plantilla opcional; silencio no es precio cero |
