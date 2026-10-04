@@ -4,10 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 import gzip
 import json
+import sqlite3
 
 import pytest
 
 from radar.adapters.local.research_cache import MAX_FRAME, SQLiteResearchCache, canonical_url
+from radar.adapters.local.telegram import Directory
+from radar.adapters.telegram import consent
 from radar.application.research.cache import CacheBinding, CacheError, CachePolicy, fingerprint
 from .conftest import NOW, OWNER, ACTOR, opened, page, policy, record
 
@@ -336,3 +339,82 @@ def test_recover_revalidates_authority_binding_and_expiry(harness):
     h.allowed[0] = False
     with pytest.raises(CacheError, match='cache_access_denied'):
         h.cache.recover_page(h.binding, pass_ref='pass:first', request_ref='request:first', now=NOW)
+
+
+def buffered(h, *, quota=3):
+    opened(h, rules=policy(max_items=1))
+    page(h, (record('one'), record('two'), record('three')))
+    return opened(h, pass_ref='pass:more', rules=policy(max_items=quota))
+
+
+def test_drain_receipt_survives_crash_before_fetch(harness):
+    h = harness
+    start = buffered(h)
+    assert h.cache.recover_drain(h.binding, pass_ref='pass:more', request_ref='drain:more', now=NOW) is None
+    drained = h.cache.drain(h.binding, pass_ref='pass:more', request_ref='drain:more', expected_version=start.version, now=NOW)
+    assert len(drained.records) == 2 and drained.view.new == 2
+    h.restart()  # crash before fetch/general checkpoint
+    recovered = h.cache.recover_drain(h.binding, pass_ref='pass:more', request_ref='drain:more', now=NOW)
+    assert recovered.replayed and recovered.records == drained.records and recovered.view == drained.view
+    replay = h.cache.drain(h.binding, pass_ref='pass:more', request_ref='drain:more', expected_version=start.version, now=NOW)
+    assert replay.replayed and replay.records == drained.records and replay.view == drained.view
+    assert recovered.view.requests == 0 and recovered.view.bytes_used == 0
+
+
+def test_crash_after_drain_and_fetch_recovers_both_exact_batches(harness):
+    h = harness
+    start = buffered(h)
+    drained = h.cache.drain(h.binding, pass_ref='pass:more', request_ref='drain:more', expected_version=start.version, now=NOW)
+    fetched = page(h, (record('four'),), pass_ref='pass:more', request='request:more')
+    count = len(list(h.config['root'].glob('*.age')))
+    h.restart()
+    previous = h.cache.recover_drain(h.binding, pass_ref='pass:more', request_ref='drain:more', now=NOW)
+    current = h.cache.recover_page(h.binding, pass_ref='pass:more', request_ref='request:more', now=NOW)
+    combined = previous.records + current.records
+    assert combined == drained.records + fetched.records
+    assert len(combined) == len({r.record_ref for r in combined}) == 3
+    assert [h.cache.read_record(h.binding, record_ref=r.record_ref, now=NOW).content for r in combined] == [b'two',b'three',b'four']
+    assert previous.view == current.view == fetched.view and current.view.new == 3
+    assert len(list(h.config['root'].glob('*.age'))) == count
+
+
+def test_empty_drain_replay_never_takes_later_pending_items(harness):
+    h = harness
+    start = opened(h, rules=policy(max_items=1))
+    empty = h.cache.drain(h.binding, pass_ref='pass:first', request_ref='drain:empty', expected_version=start.version, now=NOW)
+    assert empty.records == ()
+    result = page(h, (record('one'),record('two')))
+    assert result.view.pending_items == 1
+    replay = h.cache.drain(h.binding, pass_ref='pass:first', request_ref='drain:empty', expected_version=empty.view.version, now=NOW)
+    assert replay.replayed and replay.records == ()
+    assert replay.view == result.view and replay.view.pending_items == 1
+
+
+def test_drain_receipt_failure_rolls_back_buffer_and_quota(harness):
+    h = harness
+    start = buffered(h)
+    h.store.db.execute("CREATE TEMP TRIGGER synthetic_drain_crash BEFORE INSERT ON research_cache_drains BEGIN SELECT RAISE(ABORT,'synthetic_cache_crash'); END")
+    with pytest.raises(sqlite3.IntegrityError, match='synthetic_cache_crash'):
+        h.cache.drain(h.binding, pass_ref='pass:more', request_ref='drain:more', expected_version=start.version, now=NOW)
+    assert h.cache.current(h.binding,now=NOW) == start
+    assert h.cache.recover_drain(h.binding,pass_ref='pass:more',request_ref='drain:more',now=NOW) is None
+
+
+def test_drain_recovery_is_owner_pass_binding_and_ttl_scoped(harness):
+    h = harness
+    start = buffered(h)
+    h.cache.drain(h.binding, pass_ref='pass:more', request_ref='drain:more', expected_version=start.version, now=NOW)
+    directory = Directory(h.store)
+    directory.enroll_synthetic(102,owner_ref='owner:other',actor_ref='user:other')
+    directory.accept_consent('user:other',consent.CONSENT_VERSION,NOW,('consent:other',))
+    other = replace(h.binding,owner_ref='owner:other',actor_ref='user:other')
+    assert h.cache.recover_drain(other,pass_ref='pass:more',request_ref='drain:more',now=NOW) is None
+    with pytest.raises(CacheError,match='pass_replay_mismatch'):
+        h.cache.recover_drain(h.binding,pass_ref='pass:first',request_ref='drain:more',now=NOW)
+    with pytest.raises(CacheError,match='unknown_cache_binding'):
+        h.cache.recover_drain(replace(h.binding,task_ref='task:other'),pass_ref='pass:more',request_ref='drain:more',now=NOW)
+    with pytest.raises(CacheError,match='expired_refresh_required'):
+        h.cache.recover_drain(h.binding,pass_ref='pass:more',request_ref='drain:more',now=NOW+timedelta(days=1))
+    h.allowed[0] = False
+    with pytest.raises(CacheError,match='cache_access_denied'):
+        h.cache.recover_drain(h.binding,pass_ref='pass:more',request_ref='drain:more',now=NOW)

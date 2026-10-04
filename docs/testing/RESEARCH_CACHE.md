@@ -31,8 +31,17 @@ Operaciones, con `binding` posicional y los demás argumentos por nombre:
 - `commit_page(binding, pass_ref, request_ref, expected_version,
   records=tuple[CacheRecord], continuation=bytes|None, received_bytes=int,
   now, report_bytes=bytes|None)` guarda resultado y checkpoint atómicamente.
-- `drain(binding, pass_ref, expected_version, now)` entrega pendientes sin
-  volver a consultar la fuente; no se permite durante una petición en curso.
+- `drain(binding, pass_ref, expected_version, now, request_ref=None)` entrega
+  pendientes sin volver a consultar la fuente; no se permite durante petición
+  en curso. El host debe proporcionar `request_ref` estable para checkpoint
+  durable: refs exactas (incluso lote vacío), cuota y versión se guardan en una
+  transacción. La variante legacy sin ref no ofrece recuperación del drenaje.
+- `recover_drain(binding, pass_ref, request_ref, now)` recupera ese lote exacto,
+  o None si no existe recibo; revalida owner/actor/binding/pass/TTL y no drena
+  otros pendientes ni consume cuota. Replay de `drain` con la misma ref también
+  devuelve el lote original, sin exigir la versión CAS histórica. Crear un
+  drenaje sí exige CAS actual. El host recupera drenaje y consulta por refs
+  **diferentes** y combina ambas listas antes de guardar su checkpoint general.
 - `abandon(binding, request_ref, expected_version, now)` marca I/O incierto,
   manteniendo bytes reservados como consumidos; no reintenta automáticamente.
 - `recover_page(binding, pass_ref, request_ref, now)` recupera `PageResult`
@@ -84,7 +93,7 @@ protegen contadores/seen/checkpoint; no convierten proveedor externo en atómico
 
 ## Privacidad, espacio y caducidad
 
-Seis tablas de índice guardan referencias opacas, fingerprints, versión,
+Siete tablas de índice guardan referencias opacas, fingerprints, versión,
 contadores, timestamps y punteros cifrados: no query/URL/cuerpo/cursor/report en
 claro. Un frame de registros por página, gzip nivel 3 antes de age; mismo cursor
 y report se reutilizan si su hash no cambia. Inflado limitado a 1,047,552 bytes,
@@ -98,7 +107,7 @@ el registro A14 en SQLite, puede conservar también ciphertext en ese backend;
 esta entrega no cambia esa política ni promete almacenamiento externo exclusivo.
 
 Cuotas default por owner: 5000 registros/128 investigaciones, 5000 pasadas y
-50000 recibos de petición. Se rechaza más metadata al llegar al tope; no crece
+50000 recibos de petición y 50000 de drenaje. Se rechaza más metadata al llegar al tope; no crece
 indefinidamente. TTL bloquea acceso vencido y exige refresh; continue/cache-only
 no renuevan TTL solos. Observación fresca renueva vigencia, sin duplicar cuerpo.
 TTL es **frescura/acceso**, no borrado físico. GC seguro de índices/ciphertext y
@@ -123,6 +132,11 @@ carga. No se modificaron esos módulos ni el entorno. El follow-up verifica
 38 pruebas de caché y 31 de arquitectura, incluidas recuperación de commit
 sin checkpoint del host y recepción incierta sin reintento. El coordinador hará
 la validación completa conjunta; este corte no declara full verde.
+
+Segundo follow-up: 43 pruebas de caché +31 de arquitectura pasan (16.98 s).
+Incluye crash después del drenaje antes de consulta, drenaje+consulta antes del
+checkpoint general, replay vacío, aislamiento y rollback del recibo de drenaje.
+Checker de documentación y diff verdes; no se repitió la suite completa.
 
 No envío, transporte real, GC, métricas de red, cobertura global ni continuación
 NL de un pedido anterior se proclaman operativos por estas pruebas. El host
