@@ -211,8 +211,8 @@ def test_cancel_and_stop_prevent_worker_reads(runtime,stop):
         runtime.relay(OWNER)
         runtime.process_commands(OWNER,search_ref='search:perfume')
     runtime.relay(OWNER)
-    with pytest.raises(ConditionalConflict):
-        runtime.process_workers(OWNER)
+    runtime.process_workers(OWNER)
+    assert runtime.store.db.execute('SELECT count(*) FROM quarantine WHERE owner=?',(OWNER,)).fetchone()[0]==1
     assert runtime.worker.executions == 0
     assert runtime.store.run(owner_ref=OWNER,operation_id=op).status == 'cancelled'
 

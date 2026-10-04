@@ -18,6 +18,7 @@ from radar.ports.types import (AcceptedCommand, Approval, BlobPointer, Condition
                               Lease, LedgerRecord, LedgerState, OutboxEntry, PendingOutbox)
 from radar.ports.workflow import LocalAlertIntent, RunState
 from .codec import dumps, loads
+from .connection import SerializedConnection
 from .wire import validate_envelope
 
 
@@ -30,7 +31,7 @@ def digest(value):
 
 
 def stamp(value):
-    return utc(value).isoformat().replace('+00:00', 'Z')
+    return utc(value).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 
 def parse(value):
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS directory(id INTEGER PRIMARY KEY, owner TEXT, actor T
 CREATE TABLE IF NOT EXISTS consent_history(seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, actor TEXT, version TEXT, accepted TEXT);
 CREATE TABLE IF NOT EXISTS queue(seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, msg TEXT, destination TEXT, entry TEXT, acked INTEGER DEFAULT 0, token TEXT, visible TEXT, UNIQUE(owner,msg));
 CREATE INDEX IF NOT EXISTS queue_pending ON queue(owner,destination,acked,seq);
+CREATE TABLE IF NOT EXISTS quarantine(owner TEXT,msg TEXT,op TEXT,destination TEXT,code TEXT,hash TEXT,recorded TEXT,PRIMARY KEY(owner,msg));
 """
 
 
@@ -77,7 +79,7 @@ class SQLiteStore:
     def __init__(self, path, *, failpoint=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path, timeout=10, isolation_level=None, check_same_thread=False)
+        self.db = SerializedConnection(sqlite3.connect(self.path, timeout=10, isolation_level=None, check_same_thread=False))
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.executescript(DDL)
         self.failpoint = failpoint or (lambda stage: None)
@@ -87,14 +89,17 @@ class SQLiteStore:
 
     @contextmanager
     def transaction(self):
-        self.db.execute('BEGIN IMMEDIATE')
-        try:
-            yield
-            self.failpoint('before_commit')
-            self.db.execute('COMMIT')
-        except BaseException:
-            self.db.execute('ROLLBACK')
-            raise
+        # The same reentrant lock guards every read/write and stays held until
+        # commit/rollback, so another thread cannot see provisional changes.
+        with self.db.lock:
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                yield
+                self.failpoint('before_commit')
+                self.db.execute('COMMIT')
+            except BaseException:
+                self.db.execute('ROLLBACK')
+                raise
 
     def enroll(self, *, owner_ref, actor_ref):
         with self.transaction():
@@ -288,7 +293,8 @@ class SQLiteStore:
     def cancel(self, *, owner_ref, operation_id):
         with self.transaction():
             run = self.run(owner_ref=owner_ref,operation_id=operation_id)
-            self._write_run(owner_ref,replace(run,status='cancelled',version=run.version+1))
+            if run.status in ('pending', 'running'):
+                self._write_run(owner_ref,replace(run,status='cancelled',version=run.version+1))
 
     def task(self, *, owner_ref, message_id):
         row = self.db.execute('SELECT doc,cursor,next_cursor FROM tasks WHERE owner=? AND msg=?', (owner_ref,message_id)).fetchone()

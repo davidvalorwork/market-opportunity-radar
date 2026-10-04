@@ -47,11 +47,11 @@ def test_consent_revocation_after_enqueue_prevents_new_work(runtime,boundary):
         runtime.process_commands(OWNER,search_ref='search:perfume')
         runtime.relay(OWNER)
     runtime.directory.withdraw_consent(owner_ref=OWNER,actor_ref=ACTOR)
-    with pytest.raises(ConditionalConflict):
-        if boundary=='before_command':
-            runtime.process_commands(OWNER,search_ref='search:perfume')
-        else:
-            runtime.process_workers(OWNER)
+    if boundary=='before_command':
+        runtime.process_commands(OWNER,search_ref='search:perfume')
+    else:
+        runtime.process_workers(OWNER)
+    assert runtime.store.db.execute('SELECT count(*) FROM quarantine WHERE owner=?',(OWNER,)).fetchone()[0]==1
     assert runtime.worker.executions==0
 
 

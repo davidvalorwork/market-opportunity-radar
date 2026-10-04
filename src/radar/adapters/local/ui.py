@@ -23,7 +23,7 @@ class FakeUI:
 
     def deliver(self, *, owner_ref, intent):
         user = self.directory.by_actor(intent.actor_ref)
-        if user['owner_ref'] != owner_ref or not self.directory.accepted(user):
+        if user is None or user['owner_ref'] != owner_ref or not self.directory.accepted(user):
             raise ConditionalConflict('ui_directory_binding')
         text = report_text(intent.report) if intent.report else f'operacion={intent.operation_id} estado={intent.reason}'
         self.store.db.execute('INSERT OR IGNORE INTO ui_intents VALUES(?,?,?)',(owner_ref,intent.intent_ref,text))
@@ -34,7 +34,21 @@ class FakeUI:
 
 
 def deliver_alerts(store, ui, *, owner_ref, failpoint=lambda stage: None):
-    for _,intent in store.pending_alerts(owner_ref=owner_ref):
-        ui.deliver(owner_ref=owner_ref,intent=intent)
-        failpoint('after_ui_delivery')
-        store.mark_alert(owner_ref=owner_ref,intent_ref=intent.intent_ref)
+    denied, cursor = [], 0
+    while True:
+        page = store.pending_alerts(owner_ref=owner_ref,cursor=cursor)
+        if not page:
+            return tuple(denied)
+        for seq,intent in page:
+            cursor = seq
+            try:
+                ui.deliver(owner_ref=owner_ref,intent=intent)
+            except ConditionalConflict as error:
+                if str(error) != 'ui_directory_binding':
+                    raise
+                # Denied recipients stay durable/undelivered. Skip only in this
+                # keyset pass; don't starve later authorized recipients.
+                denied.append((intent.intent_ref,'ui_directory_binding'))
+                continue
+            failpoint('after_ui_delivery')
+            store.mark_alert(owner_ref=owner_ref,intent_ref=intent.intent_ref)

@@ -34,7 +34,14 @@ sintéticos; revisión e integración siguen pendientes.
 La compatibilidad B7 acepta sobres v1/v2, conserva su versión en descendientes
 y mantiene payloads browser/Telegram v1; no añade handlers WhatsApp.
 No se elimina `commands.fifo`: R1 aún no medido. `/stop` solo cancela estado local durable,
-sin Logout real; otros comandos se conservan pendientes en la cola.
+sin Logout real; otros comandos se aparcan durablemente como `unsupported`.
+Corrección de revisión B en esta rama: revocación no reversible por reconsentir,
+cuarentena owner/message para rechazos terminales conocidos antes del ACK,
+cuota por propietario, timestamps UTC fijos y cancel terminal sin retroceso.
+La conexión local serializa lecturas/escrituras y transacciones; la prueba de
+reader/rollback no observa cambios provisionales. Conflictos desconocidos,
+crashes y fallos de persistencia siguen pendientes sin ACK. Estas pruebas no
+demuestran DLQ AWS, privacidad productiva ni fencing del proveedor real.
 
 ## Fases F0–F15
 

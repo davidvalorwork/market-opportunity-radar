@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from radar.adapters.telegram.webhook import Webhook
 from radar.adapters.telegram.allowlist import PhoneAllowlist
 from radar.application.local_flow import handle_worker_result, run_saved_search
-from .queue import FakeQueue, relay_outbox
+from radar.ports.types import ConditionalConflict
+from .queue import FakeQueue, relay_outbox, PERMANENT_REJECTIONS
 from .sqlite import SQLiteStore
 from .telegram import Directory, Idempotency, NoInvites, TelegramBridge
 from .ui import FakeUI, deliver_alerts
@@ -50,36 +51,51 @@ class LocalRuntime:
     def process_commands(self, owner_ref, *, search_ref, failpoint=lambda stage: None):
         deliveries = self.queue.receive(owner_ref=owner_ref,destination='commands.fifo',limit=10)
         for delivery in deliveries:
-            command = delivery.envelope
-            name = command['payload']['command']
-            if name == 'buscar':
-                run_saved_search(self.store,owner_ref=owner_ref,search_ref=search_ref,command=command,now=self.clock.now())
-            elif name == 'stop':
-                self.store.stop(owner_ref=owner_ref)
-            else:
-                # This increment supports search/stop only. Other accepted B2
-                # commands remain visible in the durable command queue.
-                continue
-            failpoint('after_command_application')
-            self.queue.acknowledge(owner_ref=owner_ref,delivery=delivery)
+            def apply():
+                command = delivery.envelope
+                name = command['payload']['command']
+                if name == 'buscar':
+                    run_saved_search(self.store,owner_ref=owner_ref,search_ref=search_ref,command=command,now=self.clock.now())
+                elif name == 'stop':
+                    self.store.stop(owner_ref=owner_ref)
+                else:
+                    raise ConditionalConflict('unsupported')
+            self._consume(owner_ref,delivery,apply,'after_command_application',failpoint)
         return len(deliveries)
 
     def process_workers(self, owner_ref, *, failpoint=lambda stage: None):
         deliveries = self.queue.receive(owner_ref=owner_ref,destination='browser.fifo',limit=10)
         for delivery in deliveries:
-            self.worker.execute(owner_ref=owner_ref,envelope=delivery.envelope)
-            failpoint('after_worker_result')
-            self.queue.acknowledge(owner_ref=owner_ref,delivery=delivery)
+            self._consume(owner_ref,delivery,lambda: self.worker.execute(owner_ref=owner_ref,envelope=delivery.envelope),
+                          'after_worker_result',failpoint)
         return len(deliveries)
 
     def process_results(self, owner_ref, *, failpoint=lambda stage: None):
         deliveries = self.queue.receive(owner_ref=owner_ref,destination='results',limit=10)
         for delivery in deliveries:
-            result = decode_result(self.store,owner_ref=owner_ref,envelope=delivery.envelope)
-            handle_worker_result(self.store,owner_ref=owner_ref,result=result,now=self.clock.now())
-            failpoint('after_result_projection')
-            self.queue.acknowledge(owner_ref=owner_ref,delivery=delivery)
+            def apply():
+                result = decode_result(self.store,owner_ref=owner_ref,envelope=delivery.envelope)
+                handle_worker_result(self.store,owner_ref=owner_ref,result=result,now=self.clock.now())
+            self._consume(owner_ref,delivery,apply,'after_result_projection',failpoint)
         return len(deliveries)
+
+    def _consume(self, owner, delivery, apply, completed_stage, failpoint):
+        if self.queue.quarantined(owner_ref=owner,delivery=delivery):
+            self.queue.acknowledge(owner_ref=owner,delivery=delivery)
+            return
+        try:
+            apply()
+        except ConditionalConflict as error:
+            code = str(error)
+            if code not in PERMANENT_REJECTIONS:
+                raise
+            self.queue.quarantine(owner_ref=owner,delivery=delivery,code=code)
+            failpoint('after_quarantine')
+        else:
+            failpoint(completed_stage)
+        # Neither the checkpoint nor the ACK lies inside the exception handler
+        # for workflow failures: their failures must remain retryable/visible.
+        self.queue.acknowledge(owner_ref=owner,delivery=delivery)
 
     def pump(self, owner_ref, *, search_ref, max_steps=100):
         for _ in range(max_steps):

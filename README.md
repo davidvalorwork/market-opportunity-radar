@@ -251,8 +251,24 @@ El adaptador de `UnitOfWork` es parcial: recepción/claim están cableados;
 `approve_action`, `record_result` y `transition` con wire outbox se rechazan sin
 mutación, hasta disponer de payload privado/proveedor verificado. No acredita
 conformidad completa A1 ni integración con Go real/AWS. `/stop` es cancelación
-local durable, no Logout en WhatsApp. Los demás comandos B2 quedan pendientes
-en su cola durable; no se presentan como implementados. Telegram sigue siendo
+local durable, no Logout en WhatsApp. Los demás comandos B2 se aparcan en una
+cuarentena local durable como `unsupported`; no se presentan como implementados.
+La cuota de cola es por propietario. Cancelación, stop, revocación,
+consentimiento retirado, deadline y resultado obsoleto se aparcan antes del ACK,
+con IDs, hash y código estático, sin texto privado. La allowlist exacta está en
+`PERMANENT_REJECTIONS`; conflictos desconocidos, almacenamiento y crashes
+siguen visibles y no se ACKean. La cuarentena no es una DLQ de AWS ni un nuevo
+handler: conserva comando/evidencia para inspección local, sin reenvío automático.
+Reconsentir no reactiva un actor revocado.
+Las alertas denegadas por directorio permanecen sin marcar; se omiten solo en
+esa pasada keyset para no bloquear otros destinatarios ni siguientes lotes.
+El diagnóstico devuelve únicamente referencia y código estático; los demás
+errores de UI/persistencia siguen propagándose.
+La conexión serializa sus operaciones y mantiene el lock hasta commit/rollback; cursores se materializan
+bajo ese lock. Esto permite hilos locales, no garantiza paralelismo de consultas
+ni fencing de proveedores. Timestamps UTC llevan seis decimales fijos; la cola
+sigue leyendo timestamps históricos de segundo completo. Cancelar una corrida
+terminal no altera su estado ni versión. Telegram sigue siendo
 la única UI comercial prevista; este arnés no añade otra CLI de producto.
 
 `--host-reserve-gib` permite configurar explícitamente la reserva (3–16 GiB,
