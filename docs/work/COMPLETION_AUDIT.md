@@ -102,6 +102,13 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   cero skips/fallos. Ahora sí comprueba el wheel de esa combinación; no empaqueta
   binarios Go ni demuestra instalación/uso de cuentas. Helper A14 observado
   también por el coordinador: `go test -count=1` (0.435 s) y vet offline verdes.
+- A16, diagnóstico independiente sobre archivos aún en desarrollo: un pedido
+  sintético de 4097 bytes con dueño consentido y `chat.id` ausente producía 500;
+  IDs booleano/string producían una respuesta y una escritura de dedupe que el
+  webhook B descartaba. El implementador añadió validación de entero exacto
+  antes de la rama de longitud. Repetidos los tres casos en B y GeneralWebhook:
+  **6/6** devuelven 200 sin respuesta, persistencia ni dedupe. No acredita la
+  suite final de A16 ni bot real; la regresión debe quedar en su entrega.
 
 ## Cierre por entrega
 
@@ -127,6 +134,7 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A15 | Calendario IANA disponible en runtime/lock Windows | Candidato `4c5e4be` cierra fallo de dependencia en venv nuevo; 6/6 calendario real y combinación975 + 246. Main/integración/revisión pendientes |
 | A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Implementación aislada en curso; no hay suite final acreditada. Privacidad ingreso, claims/replay, delivery exacta y composición contextual deben probarse. No sustituirlo por CLI fixture sola ni habilitar bot real |
 | A17 | HTTP público real conforme a A8 | Iniciado aislado; transporte real pin/TLS/peer/stream/deadline y pruebas socket/TLS pendientes. No guarda cookies ni demuestra búsqueda social/CLI/browser por implementar HTTPS |
+| A18 | Investigación contextual y respuesta general durante cualquier etapa | En desarrollo aislado; A10 contexto exacto → evidencia A8/A9 → composición privada y reasoner opcional con presupuesto. Nuevo schema candidato sujeto a B; pruebas, wiring A16 y revisión aún pendientes. Literal dictado no obliga a búsqueda ni IA; no inbox o modelo real acreditado |
 | A5/F7 | DynamoDB/S3/SQS/SSM, conformidad local, outbox/reparación; experimento R1 | No implementada; depende A3. Pruebas con emuladores/moto no sustituyen AWS real |
 | F8 | SAM build/local invoke, IAM/timeout/visibilidad/concurrencia/DLQ | Pendiente; infraestructura local verificable antes de autorización para desplegar |
 | F9 | Threat model, stop/borrado/export, privacidad y revisión aplicable | Consentimiento parcial implementado. Borrado/logout/retención y revisión requerida para colaboradores no constatados |
