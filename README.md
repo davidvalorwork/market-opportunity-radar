@@ -143,7 +143,8 @@ HTTP permitido primero, navegador como respaldo y cuotas por dominio/cuenta.
 R1 (comandos directo desde Streams) se probará antes de retirar `commands.fifo`;
 la topología baseline conserva cuatro colas. Concurrencia/presupuesto limitan
 consumo, no garantizan USD 0. Productos es la única vertical a implementar ahora;
-nombres generales cuando sus casos los justifiquen, otras verticales pendientes.
+nombres generales (`Entity`, `Signal`, `Opportunity`) desde el primer commit;
+solo productos ahora, otras verticales pendientes y sin framework universal.
 Telegram es la UI única del MVP; dashboard/Mini App y vectores quedan posteriores.
 
 La calidad se medirá sobre productos y oportunidades comerciales: equivalencias
@@ -197,9 +198,13 @@ networking ni la facturación de AWS.
 
 ## Probar el flujo sintético A3
 
-Con las dependencias fijadas en `requirements.lock`, ejecutar:
+En un entorno Python 3.11+ aislado, instalar las dependencias fijadas y ejecutar:
 
 ```powershell
+python -m pip install --no-deps -r requirements.lock
+python -m pip install --no-deps setuptools==84.0.0
+python -m pip install --no-deps --no-build-isolation ".[test]"
+python -m pip check
 $env:PYTHONPATH="src"
 python -m pytest -q tests/flow
 ```
@@ -221,6 +226,9 @@ un nuevo kind de transporte v1. Publicar antes de marcar puede repetir;
 consumidores y UI falsa convergen. Los resultados admitidos antes del deadline
 pueden proyectarse después; no se inicia otra página vencida.
 
+El presupuesto incluye un máximo explícito de comparaciones por corrida, con
+pares ya evaluados, contador y razón visible al limitar candidatos. Es un arnés
+acotado, no un benchmark ni un índice de búsqueda optimizado.
 El dominio normaliza, compara y calcula con A2; el reporte muestra cobertura,
 errores, descartes, faltantes y IDs. El costo de cómputo USD sigue desconocido.
 Límites actuales: 18 monedas, liquidación de lotes completos y costos aplicables
@@ -228,9 +236,15 @@ declarados; los precios publicados no acreditan ventas ni ganancias realizadas.
 Datos sintéticos públicos permanecen en blobs locales sin cifrar; este adaptador
 rechaza referencias privadas y no simula age. IA y fuentes reales siguen apagadas.
 
-Este primer corte cubre búsqueda/resultados y fallos locales; aprobación/envío/
-reconciliación simulados tienen código experimental pendiente de su batería de
-pruebas. El adaptador de `UnitOfWork` es parcial: recepción/claim están cableados;
+Este corte cubre búsqueda/resultados y fallos locales; aprobación/envío/
+reconciliación simulados tienen pruebas de autoridad vigente, crashes, leases,
+owners separados y proofs del diario independiente del proveedor falso.
+Solo un actor de rol owner puede aprobar; cambiar permiso, consentimiento,
+sesión o vencimiento después del claim impide el efecto simulado. Caídas dejan
+`send_uncertain`, sin reenvío; una referencia de proof resuelta por propietario
+y correlación previa permite reconciliar. Estas transacciones del proveedor falso
+no son fencing ni evidencia de comportamiento de WhatsApp real.
+El adaptador de `UnitOfWork` es parcial: recepción/claim están cableados;
 `approve_action`, `record_result` y `transition` con wire outbox se rechazan sin
 mutación, hasta disponer de payload privado/proveedor verificado. No acredita
 conformidad completa A1 ni integración con Go real/AWS. `/stop` es cancelación
@@ -264,16 +278,16 @@ ausencia de archivos privados versionados. Los tests Python cubren también el
 runner con Docker simulado; los de Node comprueban contratos sintéticos sin
 dependencias externas. Ninguno reemplaza las pruebas Docker ni prueba redes
 sociales. GitHub Actions ejecuta guardas documentales y pytest en Windows y Linux.
-Pytest requiere las dependencias de test: en la línea base sin `pyproject.toml`,
-CI usa `pytest==9.1.1`; después de B1 usará el extra `.[test]` del proyecto.
-Node/Go del producto se incorporarán a CI al integrar B1/B3; no se presume
-que sus contratos o workers estén listos por existir este documento.
+Pytest requiere las dependencias fijadas en `requirements.lock` y el paquete
+local con su extra `.[test]`, según las instrucciones anteriores. A0b ya añade
+jobs Python Windows/Linux, contratos Node y ambos módulos Go. Las pruebas
+locales no demuestran una corrida de GitHub Actions ni validan cuentas reales.
 
 ## Límites y siguiente entrega
 
 El incremento A3 permite normalizar fixtures y producir informes reproducibles
-de costos sin acciones externas. Falta completar los gates de acciones locales,
-revisar/integrar la rama y construir conectores de fuentes autorizadas. Después
+de costos sin acciones externas. Falta revisar/integrar la rama y construir
+conectores de fuentes autorizadas y adaptadores wire para las acciones. Después
 se habilitarán fuentes una por una al verificar
 acceso y extracción; la cuota de búsqueda no reemplazará la calidad de comparación.
 
@@ -285,3 +299,7 @@ comerciales registrados con consentimiento.
 
 [Apache-2.0](LICENSE). Copyright 2026 David Valor. La licencia del código propio
 no concede derechos sobre contenidos, imágenes, marcas ni datos de terceros.
+El worker Go incorpora dependencias con obligaciones propias: B registra una
+dependencia transitiva GPL-3.0 en [su inventario](go/README.md). Distribuir un
+binario/imagen del worker exige resolver esas obligaciones; A3 no distribuye
+binarios ni imágenes y no convierte todas las dependencias en Apache-2.0.

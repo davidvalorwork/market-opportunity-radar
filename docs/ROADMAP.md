@@ -24,11 +24,15 @@ social ni fase comercial terminada; la configuración de producto sigue document
 Primer corte A3 observado: SQLite en disco con receipt/command/outbox atómicos,
 replay durable, queue/worker/UI falsos, cálculo A2 derivado de evidencia, snapshot
 de búsqueda, presupuesto/cursor, resultados y alert intents locales. Casos
-de búsqueda/resultados probados en `tests/flow`; acciones/aprobación/reconciliación
-simuladas aún pendientes de sus pruebas. La recepción UoW es parcial, no
+de búsqueda/resultados y aprobación/reconciliación simulada probados en
+`tests/flow`, incluidos roles, consentimiento, leases, crashes y proof independiente
+del diario falso. La recepción UoW es parcial, no
 conformidad completa A1; wire actions requieren age y proveedor verificado.
-No se conecta el worker Go ni AWS. Consentimiento B y revisión de main vigente
-son gates de integración. No se elimina `commands.fifo`: R1 aún no medido.
+No se conecta el worker Go ni AWS. La rama A3 incorpora la compatibilidad con
+consentimiento y alta de contacto B2b (`070ce46`), con directorio/allowlist
+sintéticos; revisión e integración siguen pendientes. No se elimina
+`commands.fifo`: R1 aún no medido. `/stop` solo cancela estado local durable,
+sin Logout real; otros comandos se conservan pendientes en la cola.
 
 ## Fases F0–F15
 
@@ -57,8 +61,9 @@ separada antes de ejecutar el gate real.
 | F15 | Segunda vertical | **[U]** alcance formalmente confirmado después de F12; fixtures y casos reales antes de generalizar dominio |
 
 R1 comparará comandos directo desde Streams frente a `commands.fifo`; el baseline
-conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales justificados
-en productos, no implementa otras verticales. R4 exige permisos/capacidades antes
+conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales desde el
+primer commit, implementa solo productos y no anticipa un framework universal.
+R4 exige permisos/capacidades antes
 de toda ruta HTTP. B-Q006 permite respaldo local sin proxies/evasión según el
 informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 

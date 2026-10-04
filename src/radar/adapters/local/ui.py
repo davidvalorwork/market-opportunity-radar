@@ -6,6 +6,7 @@ def report_text(report):
     rows = [f'run={report.operation_id} result={report.message_id}',
             f'fuente={report.source_status} error={report.source_error} registros={report.records_observed}',
             f'trabajos={report.jobs_used} paginas={report.pages_used} costoUSD={report.compute_cost_usd}',
+            f'comparaciones={report.comparisons_used} limite={report.comparisons_limited}',
             f'descartes={report.discarded} ganancias_realizadas={report.realized_profit}']
     for candidate in report.candidates:
         economics = candidate.economics

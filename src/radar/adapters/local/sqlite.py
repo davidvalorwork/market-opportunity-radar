@@ -13,6 +13,7 @@ import sqlite3
 from uuid import uuid4
 
 from radar.contracts import validate
+from radar.adapters.telegram import consent
 from radar.domain.core import utc
 from radar.ports.types import (AcceptedCommand, Approval, BlobPointer, ConditionalConflict,
                               Lease, LedgerRecord, LedgerState, OutboxEntry, PendingOutbox)
@@ -55,10 +56,12 @@ CREATE TABLE IF NOT EXISTS worker_results(owner TEXT, msg TEXT, op TEXT, hash TE
 CREATE INDEX IF NOT EXISTS worker_result_cause ON worker_results(owner,cause);
 CREATE TABLE IF NOT EXISTS projected_signals(owner TEXT, msg TEXT, op TEXT, doc TEXT, PRIMARY KEY(owner,msg));
 CREATE INDEX IF NOT EXISTS signals_by_operation ON projected_signals(owner,op);
-CREATE TABLE IF NOT EXISTS projections(owner TEXT, msg TEXT, op TEXT, hash TEXT, doc TEXT, PRIMARY KEY(owner,msg));
+CREATE TABLE IF NOT EXISTS projections(owner TEXT, msg TEXT, op TEXT, hash TEXT, doc TEXT, page INTEGER, PRIMARY KEY(owner,msg));
+CREATE INDEX IF NOT EXISTS projections_by_run ON projections(owner,op,page);
 CREATE TABLE IF NOT EXISTS alerts(seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, ref TEXT, doc TEXT, delivered INTEGER NOT NULL DEFAULT 0, UNIQUE(owner,ref));
 CREATE INDEX IF NOT EXISTS pending_alerts ON alerts(owner,delivered,seq);
 CREATE TABLE IF NOT EXISTS ledger(owner TEXT, op TEXT, doc TEXT, PRIMARY KEY(owner,op));
+CREATE TABLE IF NOT EXISTS cancelled_actions(owner TEXT,op TEXT,PRIMARY KEY(owner,op));
 CREATE TABLE IF NOT EXISTS sessions(owner TEXT, ref TEXT, version INTEGER, PRIMARY KEY(owner,ref));
 CREATE TABLE IF NOT EXISTS leases(owner TEXT, ref TEXT, doc TEXT, PRIMARY KEY(owner,ref));
 CREATE TABLE IF NOT EXISTS blobs(owner TEXT, key TEXT, hash TEXT, content BLOB, PRIMARY KEY(owner,key));
@@ -101,6 +104,14 @@ class SQLiteStore:
     def authorize_actor(self, *, owner_ref, actor_ref):
         return self.db.execute('SELECT 1 FROM actors WHERE owner=? AND actor=? AND enabled=1', (owner_ref, actor_ref)).fetchone() is not None
 
+    def current_consent(self, owner, actor):
+        return self.db.execute('SELECT 1 FROM directory WHERE owner=? AND actor=? AND consent_version=?',
+                               (owner,actor,consent.CONSENT_VERSION)).fetchone() is not None
+
+    def owner_actor(self, owner, actor):
+        return self.authorize_actor(owner_ref=owner,actor_ref=actor) and self.db.execute(
+            'SELECT 1 FROM directory WHERE owner=? AND actor=? AND role=\'owner\'',(owner,actor)).fetchone() is not None
+
     def revoke(self, *, owner_ref, actor_ref):
         self.db.execute('UPDATE actors SET enabled=0 WHERE owner=? AND actor=?', (owner_ref, actor_ref))
 
@@ -112,6 +123,7 @@ class SQLiteStore:
     def stop(self, *, owner_ref):
         with self.transaction():
             self.db.execute('UPDATE owners SET stopped=1 WHERE owner=?', (owner_ref,))
+            self.db.execute('UPDATE directory SET consent_version=NULL,consent_at=NULL WHERE owner=?',(owner_ref,))
             for op, doc in self.db.execute('SELECT op,doc FROM runs WHERE owner=?', (owner_ref,)).fetchall():
                 run = loads(doc)
                 if run.status in ('pending', 'running'):
@@ -143,8 +155,12 @@ class SQLiteStore:
         actor = command['payload']['telegram_user_ref']
         if not self.authorize_actor(owner_ref=owner_ref, actor_ref=actor):
             raise ConditionalConflict('command_actor')
+        if command['payload']['command'] not in consent.UNGATED and not self.current_consent(owner_ref,actor):
+            raise ConditionalConflict('command_consent')
         refs = tuple(dict.fromkeys((receipt.event_ref,) + receipt.idempotency_refs))
         with self.transaction():
+            if not self.authorize_actor(owner_ref=owner_ref,actor_ref=actor) or (command['payload']['command'] not in consent.UNGATED and not self.current_consent(owner_ref,actor)):
+                raise ConditionalConflict('command_authority_changed')
             found = [self.db.execute('SELECT hash,op,msg FROM receipts WHERE owner=? AND channel=? AND ref=?',
                                      (owner_ref,receipt.channel,ref)).fetchone() for ref in refs]
             present = [r for r in found if r]
@@ -188,7 +204,7 @@ class SQLiteStore:
     def save_search(self, *, owner_ref, search):
         if not self.authorize_actor(owner_ref=owner_ref,actor_ref=search.actor_ref):
             raise ConditionalConflict('search_actor')
-        if not 1 <= search.page_size <= 10 or not 1 <= search.max_jobs <= 100 or not 1 <= search.max_pages <= 100:
+        if not 1 <= search.page_size <= 10 or not 1 <= search.max_jobs <= 100 or not 1 <= search.max_pages <= 100 or not 1 <= search.max_comparisons <= 10000:
             raise ValueError('bounded_search_required')
         self.db.execute('INSERT OR REPLACE INTO searches VALUES(?,?,?)', (owner_ref,search.search_ref,dumps(search)))
 
@@ -238,14 +254,23 @@ class SQLiteStore:
     def start_run(self, *, owner_ref, search_ref, command, now):
         validate('envelope.v1',command)
         with self.transaction():
-            search = self.search(owner_ref=owner_ref,search_ref=search_ref)
             self._active(owner_ref)
+            actor = command['payload']['telegram_user_ref']
+            if not self.current_consent(owner_ref,actor) or not self.authorize_actor(owner_ref=owner_ref,actor_ref=actor):
+                raise ConditionalConflict('run_consent')
             saved = self.command(owner_ref=owner_ref,operation_id=command['operation_id'])
-            if saved != command or search.actor_ref != command['payload']['telegram_user_ref']:
+            if saved != command:
                 raise ConditionalConflict('run_command_binding_or_expiry')
             row = self.db.execute('SELECT doc FROM runs WHERE owner=? AND op=?',(owner_ref,command['operation_id'])).fetchone()
             if row:
-                return loads(row[0])
+                existing = loads(row[0])
+                frozen = self.search_for_run(owner_ref=owner_ref,operation_id=existing.operation_id)
+                if frozen.actor_ref != actor or existing.search_ref != search_ref:
+                    raise ConditionalConflict('original_run_binding')
+                return existing
+            search = self.search(owner_ref=owner_ref,search_ref=search_ref)
+            if search.actor_ref != actor:
+                raise ConditionalConflict('search_actor_binding')
             if command['payload']['command'] != 'buscar' or command['payload'].get('args',{}).get('query') != search.query:
                 raise ConditionalConflict('saved_search_query_binding')
             if parse(command['deadline']) <= now:
@@ -302,9 +327,12 @@ class SQLiteStore:
         self.failpoint('after_alert')
 
     def commit_projection(self, *, owner_ref, result, report, now):
+        from .worker import decode_result
         env = result.envelope
         validate('envelope.v1',env)
         with self.transaction():
+            if decode_result(self,owner_ref=owner_ref,envelope=env) != result:
+                raise ConditionalConflict('result_projection_must_derive_from_evidence')
             task,_,next_cursor = self.task(owner_ref=owner_ref,message_id=env.get('causation_id'))
             # Durable replays may arrive after transport deadline; new work may
             # not. Identity/hash checks still precede returning the old report.
@@ -325,7 +353,7 @@ class SQLiteStore:
             run = self.run(owner_ref=owner_ref,operation_id=env['operation_id'])
             if run.status != 'running' or run.version != task['expected_version']:
                 raise ConditionalConflict('cancelled_or_stale_run')
-            self.db.execute('INSERT INTO projections VALUES(?,?,?,?,?)',(owner_ref,env['message_id'],env['operation_id'],result.content_hash,dumps(report)))
+            self.db.execute('INSERT INTO projections VALUES(?,?,?,?,?,?)',(owner_ref,env['message_id'],env['operation_id'],result.content_hash,dumps(report),run.pages_used))
             self.db.execute('INSERT INTO projected_signals VALUES(?,?,?,?)',(owner_ref,env['message_id'],env['operation_id'],dumps(result.signals)))
             self.failpoint('after_projection')
             self._alert(owner_ref,LocalAlertIntent('result:'+env['message_id'],run.actor_ref,run.operation_id,'report',report))
@@ -352,6 +380,10 @@ class SQLiteStore:
 
     def signals_for_run(self, *, owner_ref, operation_id):
         return tuple(s for row in self.db.execute('SELECT doc FROM projected_signals WHERE owner=? AND op=? ORDER BY msg',(owner_ref,operation_id)) for s in loads(row[0]))
+
+    def latest_report(self, *, owner_ref, operation_id):
+        row = self.db.execute('SELECT doc FROM projections WHERE owner=? AND op=? ORDER BY page DESC LIMIT 1',(owner_ref,operation_id)).fetchone()
+        return loads(row[0]) if row else None
 
     def reports(self, *, owner_ref, operation_id):
         return tuple(loads(r[0]) for r in self.db.execute('SELECT doc FROM projections WHERE owner=? AND op=? ORDER BY msg',(owner_ref,operation_id)))
@@ -444,9 +476,11 @@ class SQLiteStore:
 
     def _approved(self, owner, op, expected, approval, now):
         self._active(owner)
+        if self.db.execute('SELECT 1 FROM cancelled_actions WHERE owner=? AND op=?',(owner,op)).fetchone():
+            raise ConditionalConflict('action_cancelled')
         record = self.get(owner_ref=owner,operation_id=op)
         session = self.db.execute('SELECT version FROM sessions WHERE owner=? AND ref=?',(owner,approval.session_ref)).fetchone()
-        if not record or record.state != LedgerState.PROPOSED or record.version != expected or approval.expires_at <= now or not self.authorize_actor(owner_ref=owner,actor_ref=approval.actor_ref) or not session or session[0] != approval.session_version or any(getattr(record,k) != getattr(approval,k) for k in ('recipient_ref','session_ref','session_version','content_hash','purpose')):
+        if not record or record.state != LedgerState.PROPOSED or record.version != expected or approval.expires_at <= now or not self.owner_actor(owner,approval.actor_ref) or not self.current_consent(owner,approval.actor_ref) or not session or session[0] != approval.session_version or any(getattr(record,k) != getattr(approval,k) for k in ('recipient_ref','session_ref','session_version','content_hash','purpose')):
             raise ConditionalConflict('approval_binding_expiry_version')
         approved = replace(record,state=LedgerState.APPROVED,version=record.version+1,approval=approval)
         self._write_ledger(owner,approved)
@@ -462,16 +496,27 @@ class SQLiteStore:
     def claim_dispatch(self, *, owner_ref, operation_id, expected_version, lease, provider_message_ref, now):
         with self.transaction():
             self._active(owner_ref)
+            if self.db.execute('SELECT 1 FROM cancelled_actions WHERE owner=? AND op=?',(owner_ref,operation_id)).fetchone():
+                raise ConditionalConflict('action_cancelled')
             record = self.get(owner_ref=owner_ref,operation_id=operation_id)
             session = self.db.execute('SELECT version FROM sessions WHERE owner=? AND ref=?',(owner_ref,lease.session_ref)).fetchone()
-            if not record or record.state != LedgerState.APPROVED or record.version != expected_version or not record.approval or record.approval.expires_at <= now or not self.authorize_actor(owner_ref=owner_ref,actor_ref=record.approval.actor_ref) or not session or session[0] != record.session_version or record.session_ref != lease.session_ref or not self.is_current(owner_ref=owner_ref,lease=lease,now=now) or not provider_message_ref:
+            if not record or record.state != LedgerState.APPROVED or record.version != expected_version or not record.approval or record.approval.expires_at <= now or not self.owner_actor(owner_ref,record.approval.actor_ref) or not self.current_consent(owner_ref,record.approval.actor_ref) or not session or session[0] != record.session_version or record.session_ref != lease.session_ref or not self.is_current(owner_ref=owner_ref,lease=lease,now=now) or not provider_message_ref:
                 raise ConditionalConflict('dispatch_binding_or_current_lease')
             claimed = replace(record,state=LedgerState.DISPATCH_COMMITTED,version=record.version+1,provider_message_ref=provider_message_ref)
             self._write_ledger(owner_ref,claimed)
             return claimed
 
+    def cancel_action(self, *, owner_ref, operation_id):
+        with self.transaction():
+            record = self.get(owner_ref=owner_ref,operation_id=operation_id)
+            if not record or record.state not in (LedgerState.PROPOSED,LedgerState.APPROVED,LedgerState.DISPATCH_COMMITTED):
+                raise ConditionalConflict('cannot_cancel_dispatch_started')
+            self.db.execute('INSERT OR IGNORE INTO cancelled_actions VALUES(?,?)',(owner_ref,operation_id))
+
     def _finish(self, owner, op, expected, target, provider_ref):
         record = self.get(owner_ref=owner,operation_id=op)
+        if record and record.state == target and provider_ref == record.provider_message_ref:
+            return record
         if not record or record.state != LedgerState.DISPATCH_COMMITTED or record.version != expected or target not in (LedgerState.PROVIDER_CONFIRMED,LedgerState.SEND_UNCERTAIN) or provider_ref != record.provider_message_ref:
             raise ConditionalConflict('result_transition')
         completed = replace(record,state=target,version=record.version+1)

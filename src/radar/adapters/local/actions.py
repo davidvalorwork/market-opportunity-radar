@@ -31,16 +31,26 @@ class SimulatedSender:
         if not self.store.is_current(owner_ref=owner_ref,lease=lease,now=self.clock.now()):
             return self.store.finish_local(owner_ref=owner_ref,operation_id=operation_id,expected_version=claimed.version,
                                            target=LedgerState.SEND_UNCERTAIN,provider_message_ref=claimed.provider_message_ref,now=self.clock.now())
-        self._provider_accept(owner_ref,claimed)
+        try:
+            self._provider_accept(owner_ref,claimed,lease)
+        except ConditionalConflict:
+            return self.store.finish_local(owner_ref=owner_ref,operation_id=operation_id,expected_version=claimed.version,
+                                           target=LedgerState.SEND_UNCERTAIN,provider_message_ref=claimed.provider_message_ref,now=self.clock.now())
         failpoint('after_simulated_send')
         failpoint('snapshot')
         return self.store.finish_local(owner_ref=owner_ref,operation_id=operation_id,expected_version=claimed.version,
                                        target=LedgerState.PROVIDER_CONFIRMED,provider_message_ref=claimed.provider_message_ref,now=self.clock.now())
 
-    def _provider_accept(self, owner, record):
+    def _provider_accept(self, owner, record, lease):
         # This is written independently BEFORE the app result transaction. The
         # operation is identified by protocol correlation, never text/date.
         with self.store.transaction():
+            self.store._active(owner)
+            current = self.store.get(owner_ref=owner,operation_id=record.operation_id)
+            session = self.store.db.execute('SELECT version FROM sessions WHERE owner=? AND ref=?',(owner,record.session_ref)).fetchone()
+            cancelled = self.store.db.execute('SELECT 1 FROM cancelled_actions WHERE owner=? AND op=?',(owner,record.operation_id)).fetchone()
+            if current != record or cancelled or not self.store.owner_actor(owner,record.approval.actor_ref) or not self.store.current_consent(owner,record.approval.actor_ref) or record.approval.expires_at <= self.clock.now() or not session or session[0] != record.session_version or not self.store.is_current(owner_ref=owner,lease=lease,now=self.clock.now()):
+                raise ConditionalConflict('synthetic_effect_current_authority')
             self.store.db.execute('INSERT INTO provider_proofs VALUES(?,?,?,?,?,?,?,?,?)',
                                   (owner,'proof:'+str(uuid4()),record.operation_id,record.recipient_ref,record.session_ref,
                                    record.session_version,record.content_hash,record.purpose,record.provider_message_ref))

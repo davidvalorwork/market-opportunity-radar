@@ -31,6 +31,7 @@ class SavedSearch:
     max_pages: int = 1
     max_jobs: int = 1
     page_size: int = 10
+    max_comparisons: int = 100
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,9 @@ class Report:
     pages_used: int
     compute_cost_usd: str | None = None
     realized_profit: str | None = None
+    comparisons_used: int = 0
+    comparisons_limited: bool = False
+    evaluated_pairs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +107,7 @@ class WorkflowStore(Protocol):
     def run(self, *, owner_ref: str, operation_id: str) -> RunState: ...
     def projected_report(self, *, owner_ref: str, result: WorkerResult) -> Report | None: ...
     def signals_for_run(self, *, owner_ref: str, operation_id: str) -> tuple[Signal, ...]: ...
+    def latest_report(self, *, owner_ref: str, operation_id: str) -> Report | None: ...
     def commit_projection(self, *, owner_ref: str, result: WorkerResult,
                           report: Report, now: datetime) -> bool: ...
     def authorize_actor(self, *, owner_ref: str, actor_ref: str) -> bool: ...

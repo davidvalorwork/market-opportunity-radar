@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 
 from radar.adapters.telegram.webhook import Webhook
+from radar.adapters.telegram.allowlist import PhoneAllowlist
 from radar.application.local_flow import handle_worker_result, run_saved_search
 from .queue import FakeQueue, relay_outbox
 from .sqlite import SQLiteStore
@@ -19,16 +20,24 @@ class FixedClock:
 
 
 class LocalRuntime:
-    def __init__(self, path, *, fixtures, synthetic_authorized=False, clock=None, failpoint=None):
+    def __init__(self, path, *, fixtures, synthetic_authorized=False, clock=None, failpoint=None,
+                 phone_allowlist=None, synthetic_contact_owner_ref=None):
+        if synthetic_authorized is not True:
+            raise ValueError('explicit_synthetic_authorization_required')
+        phones = phone_allowlist or PhoneAllowlist.from_json('{"schema_version":1,"entries":[]}')
         self.clock = clock or FixedClock()
         self.store = SQLiteStore(path,failpoint=failpoint)
-        self.directory = Directory(self.store)
+        self.directory = Directory(self.store,synthetic_contact_owner_ref=synthetic_contact_owner_ref)
         self.bridge = TelegramBridge(self.store,self.directory)
         self.webhook = Webhook(secret='synthetic-local-secret',unit_of_work=self.bridge,
                                idempotency=Idempotency(self.store),users=self.directory,
-                               invites=NoInvites(),clock=self.clock.now)
+                               invites=NoInvites(),phone_allowlist=phones,clock=self.clock.now)
         self.queue = FakeQueue(self.store,self.clock)
-        self.worker = FakeWorker(self.store,self.clock,fixtures=fixtures,synthetic_authorized=synthetic_authorized)
+        try:
+            self.worker = FakeWorker(self.store,self.clock,fixtures=fixtures,synthetic_authorized=synthetic_authorized)
+        except BaseException:
+            self.store.close()
+            raise
         self.ui = FakeUI(self.store,self.directory)
 
     def relay(self, owner_ref):

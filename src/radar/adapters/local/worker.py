@@ -66,7 +66,7 @@ class FakeWorker:
         self.store._active(owner_ref)
         run = self.store.run(owner_ref=owner_ref,operation_id=task['operation_id'])
         search = self.store.search_for_run(owner_ref=owner_ref,operation_id=run.operation_id)
-        if run.status != 'running' or run.version != task['expected_version'] or not self.store.source_allowed(owner_ref=owner_ref,source_ref=search.source_ref) or parse(task['deadline']) <= self.clock.now():
+        if run.status != 'running' or run.version != task['expected_version'] or not self.store.current_consent(owner_ref,run.actor_ref) or not self.store.authorize_actor(owner_ref=owner_ref,actor_ref=run.actor_ref) or not self.store.source_allowed(owner_ref=owner_ref,source_ref=search.source_ref) or parse(task['deadline']) <= self.clock.now():
             raise ConditionalConflict('worker_cancelled_unauthorized_or_expired')
         batch = envelope['payload']['batch']
         records = []
