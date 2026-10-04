@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.list_chats.v2.json",
+  "title": "Payload whatsapp.list_chats v2",
+  "description": "Lista, por páginas, los chats que la sesión conoce (escribieron al número o se resolvieron con resolve_contact) para que el propietario elija cuáles habilitar. Solo lee el estado de sesión: no conecta, no lee mensajes y no escribe a nadie. El resultado lleva solo chat_count; refs, nombres y fechas viajan en whatsapp.chats.private.v1 (private_ref). since_cursor es el next_cursor anterior.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "page_size"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+    "since_cursor": {"type": "string", "pattern": "^[A-Za-z0-9_.:=-]{1,256}$"}
+  }
+}

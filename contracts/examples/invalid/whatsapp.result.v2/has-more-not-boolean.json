@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "status": "succeeded",
+  "message_count": 100,
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/sync-e97dc7b718d35168499c5ed64207b5e075e8018bec578ee13e3633a91638966d.age",
+    "sha256": "e97dc7b718d35168499c5ed64207b5e075e8018bec578ee13e3633a91638966d",
+    "recipient_scope": "worker:whatsapp"
+  },
+  "next_cursor": "p142",
+  "has_more": "yes",
+  "session_version": 5
+}

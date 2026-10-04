@@ -13,8 +13,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
@@ -40,6 +42,8 @@ const (
 	// PostPairWait bounds the wait for the reconnect whatsmeow does after PairSuccess.
 	PostPairWait = 30 * time.Second
 	chatPrefix   = "wachat:c" // opaque refs need a letter in the value
+	// tsLayout keeps nanoseconds fixed-width so stored timestamps compare as text (max()).
+	tsLayout = "2006-01-02T15:04:05.000000000Z"
 )
 
 var (
@@ -64,7 +68,6 @@ type Client struct {
 	mu         sync.Mutex
 	fatal      error
 	pairedUser string
-	msgs       []contract.Message
 	closeOnce  sync.Once
 }
 
@@ -99,7 +102,12 @@ func New(ctx context.Context, dir string) (*Client, error) {
 		db.Close()
 		return nil, fmt.Errorf("session store: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS radar_chat_ref (ref TEXT PRIMARY KEY, jid TEXT NOT NULL UNIQUE)`); err != nil {
+	// radar_chat_ref: opaque ref <-> JID. radar_chat_seen: last incoming message per chat (list_chats).
+	// radar_pending: received (already acked to WhatsApp) messages kept until a cursor acknowledges
+	// them, so a page that does not fit never loses messages. All travel inside the encrypted snapshot.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS radar_chat_ref (ref TEXT PRIMARY KEY, jid TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS radar_chat_seen (ref TEXT PRIMARY KEY, last_message_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS radar_pending (seq INTEGER PRIMARY KEY AUTOINCREMENT, chat_ref TEXT NOT NULL, text TEXT NOT NULL, observed_at TEXT NOT NULL)`); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -170,13 +178,10 @@ func (c *Client) handle(evt any) {
 		if !ok {
 			return
 		}
-		ref, err := c.chatRef(context.Background(), chat)
-		if err != nil {
+		// Stored before handle returns: with SynchronousAck, WhatsApp gets the ack only after this.
+		if err := c.store(context.Background(), chat, text, at); err != nil {
 			return // dropped; ponytail: count drops if real runs show any
 		}
-		c.mu.Lock()
-		c.msgs = append(c.msgs, contract.Message{ChatRef: ref, Text: text, ObservedAt: contract.Time{Time: at}})
-		c.mu.Unlock()
 	}
 	// events.HistorySync never arrives (ManualHistorySyncDownload) and would be ignored anyway.
 }
@@ -216,6 +221,21 @@ func (c *Client) chatRef(ctx context.Context, chat types.JID) (string, error) {
 	}
 	var ref string
 	return ref, c.db.QueryRowContext(ctx, `SELECT ref FROM radar_chat_ref WHERE jid = ?`, chat.String()).Scan(&ref)
+}
+
+// store keeps one incoming message pending and records when its chat last wrote.
+func (c *Client) store(ctx context.Context, chat types.JID, text string, at time.Time) error {
+	ref, err := c.chatRef(ctx, chat)
+	if err != nil {
+		return err
+	}
+	ts := at.UTC().Format(tsLayout)
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO radar_pending (chat_ref, text, observed_at) VALUES (?, ?, ?)`, ref, text, ts); err != nil {
+		return err
+	}
+	_, err = c.db.ExecContext(ctx, `INSERT INTO radar_chat_seen (ref, last_message_at) VALUES (?, ?)
+ON CONFLICT (ref) DO UPDATE SET last_message_at = max(last_message_at, excluded.last_message_at)`, ref, ts)
+	return err
 }
 
 func (c *Client) jidFor(ctx context.Context, ref string) (types.JID, error) {
@@ -270,22 +290,171 @@ func (c *Client) WaitPaired(ctx context.Context) (string, error) {
 	return c.pairedUser, nil
 }
 
-// Sync waits for OfflineSyncCompleted, then disconnects before reading the buffer:
-// with SynchronousAck, anything handled after that cannot be acked and is redelivered
-// next time (at-least-once; a message may repeat, it should not be lost). since is
-// ignored: the offline queue lives on WhatsApp's side.
-func (c *Client) Sync(ctx context.Context, _ string) ([]contract.Message, bool, error) {
+// Sync waits for OfflineSyncCompleted, then disconnects before reading the pending table:
+// with SynchronousAck, anything handled after that cannot be acked and is redelivered next
+// time (at-least-once; a message may repeat, it should not be lost). Messages of chats not
+// in enabled are deleted (never returned, never kept); the oldest limit of the rest are
+// returned and stay pending until Ack.
+func (c *Client) Sync(ctx context.Context, enabled []string, limit int) ([]whatsapp.Pending, bool, error) {
 	err := c.wait(ctx, &c.offline)
-	if err != nil && !errors.Is(err, whatsapp.ErrTimeout) {
-		return nil, false, err
-	}
 	c.cli.Disconnect()
 	if err != nil {
-		return nil, false, nil // deadline: the worker reports timeout and keeps the old session
+		return nil, false, err // deadline: ErrTimeout; the worker reports timeout and keeps the old session
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]contract.Message(nil), c.msgs...), true, nil
+	return pendingPage(ctx, c.db, enabled, limit)
+}
+
+func pendingPage(ctx context.Context, db *sql.DB, enabled []string, limit int) ([]whatsapp.Pending, bool, error) {
+	if len(enabled) == 0 {
+		return nil, false, errors.New("no enabled chats")
+	}
+	args := make([]any, len(enabled))
+	for i, e := range enabled {
+		args[i] = e
+	}
+	in := "(?" + strings.Repeat(",?", len(enabled)-1) + ")"
+	if _, err := db.ExecContext(ctx, `DELETE FROM radar_pending WHERE chat_ref NOT IN `+in, args...); err != nil {
+		return nil, false, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT seq, chat_ref, text, observed_at FROM radar_pending ORDER BY seq LIMIT ?`, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var page []whatsapp.Pending
+	for rows.Next() {
+		var seq int64
+		var p whatsapp.Pending
+		var at string
+		if err := rows.Scan(&seq, &p.ChatRef, &p.Text, &at); err != nil {
+			return nil, false, err
+		}
+		t, err := time.Parse(time.RFC3339Nano, at)
+		if err != nil {
+			return nil, false, err
+		}
+		p.Cursor, p.ObservedAt = whatsapp.Cursor(seq), contract.Time{Time: t}
+		page = append(page, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(page) > limit {
+		return page[:limit], true, nil
+	}
+	return page, false, nil
+}
+
+// Ack deletes pending messages up to cursor. A cursor beyond the highest sequence ever
+// issued is refused. ponytail: an issued-but-unreturned cursor is accepted (consumers only
+// echo next_cursor); track a returned high-water mark if cursors ever come from elsewhere.
+func (c *Client) Ack(ctx context.Context, cursor string) error {
+	seq, ok := whatsapp.CursorSeq(cursor)
+	if !ok {
+		return whatsapp.ErrBadCursor
+	}
+	var issued int64
+	c.db.QueryRowContext(ctx, `SELECT seq FROM sqlite_sequence WHERE name = 'radar_pending'`).Scan(&issued)
+	if seq > issued {
+		return whatsapp.ErrBadCursor
+	}
+	_, err := c.db.ExecContext(ctx, `DELETE FROM radar_pending WHERE seq <= ?`, seq)
+	return err
+}
+
+func (c *Client) HasChat(ctx context.Context, ref string) (bool, error) {
+	_, err := c.jidFor(ctx, ref)
+	return err == nil, nil
+}
+
+// ListChats reads radar_chat_ref; display names come from whatsmeow's contact store
+// (saved contact name, else business or push name), never from the network. Group names
+// are not stored locally and are left out.
+func (c *Client) ListChats(ctx context.Context, after string, limit int) ([]contract.Chat, bool, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT r.ref, r.jid, s.last_message_at FROM radar_chat_ref r
+LEFT JOIN radar_chat_seen s ON s.ref = r.ref WHERE r.ref > ? ORDER BY r.ref LIMIT ?`, after, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	type row struct {
+		chat contract.Chat
+		jid  string
+	}
+	var list []row
+	for rows.Next() {
+		var r row
+		var at sql.NullString
+		if err := rows.Scan(&r.chat.ChatRef, &r.jid, &at); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		if at.Valid {
+			t, err := time.Parse(time.RFC3339Nano, at.String)
+			if err != nil {
+				rows.Close()
+				return nil, false, err
+			}
+			r.chat.LastMessageAt = &contract.Time{Time: t}
+		}
+		list = append(list, r)
+	}
+	rows.Close() // before the contact lookups below reuse the pool
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	more := len(list) > limit
+	if more {
+		list = list[:limit]
+	}
+	chats := make([]contract.Chat, len(list))
+	for i, r := range list {
+		chats[i] = r.chat
+		if jid, err := types.ParseJID(r.jid); err == nil && jid.Server == types.DefaultUserServer && c.cli.Store.Contacts != nil {
+			if info, err := c.cli.Store.Contacts.GetContact(ctx, jid); err == nil && info.Found {
+				chats[i].DisplayName = displayName(info)
+			}
+		}
+	}
+	return chats, more, nil
+}
+
+func displayName(info types.ContactInfo) string {
+	for _, n := range []string{info.FullName, info.FirstName, info.BusinessName, info.PushName} {
+		if n = strings.TrimSpace(n); n != "" {
+			if utf8.RuneCountInString(n) > 128 {
+				n = string([]rune(n)[:128])
+			}
+			return n
+		}
+	}
+	return ""
+}
+
+// ResolveChat asks WhatsApp whether phone has an account (IsOnWhatsApp, one number per
+// call) and maps the answer to a stable chat ref. It sends no message.
+func (c *Client) ResolveChat(ctx context.Context, phone string) (string, error) {
+	resp, err := c.cli.IsOnWhatsApp(ctx, []string{phone})
+	if err != nil {
+		return "", err
+	}
+	jid, ok := registeredJID(resp)
+	if !ok {
+		return "", whatsapp.ErrNotOnWhatsApp
+	}
+	return c.chatRef(ctx, jid)
+}
+
+// registeredJID picks the chat JID from an IsOnWhatsApp answer: the phone-number JID when
+// known (chatRef maps @lid to it anyway), else the canonical one.
+func registeredJID(resp []types.IsOnWhatsAppResponse) (types.JID, bool) {
+	if len(resp) != 1 || !resp[0].IsIn {
+		return types.JID{}, false
+	}
+	jid := resp[0].PhoneNumber
+	if jid.IsEmpty() {
+		jid = resp[0].JID
+	}
+	return jid.ToNonAD(), !jid.IsEmpty()
 }
 
 func (c *Client) Send(ctx context.Context, chat, text string) (string, error) {

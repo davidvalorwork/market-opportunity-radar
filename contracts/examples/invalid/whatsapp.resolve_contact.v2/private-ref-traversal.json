@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "private_ref": {
+    "blob_key": "private/../contact.age",
+    "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+    "recipient_scope": "worker:whatsapp"
+  }
+}

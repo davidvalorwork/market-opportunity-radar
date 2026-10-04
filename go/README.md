@@ -2,7 +2,7 @@
 
 Un solo módulo Go para el vault de sesiones age y el worker WhatsApp. Estado:
 **worker probado con fakes y adaptador whatsmeow compilado y probado offline,
-alineado con los contratos JSON v1**. El adaptador real (`internal/whatsapp/wameow`)
+alineado con los contratos JSON v1 y v2** ([contratos v2](../contracts/README.md#contratos-v2-de-whatsapp)). El adaptador real (`internal/whatsapp/wameow`)
 **nunca se ha conectado a WhatsApp**: emparejar, sincronizar y enviar de verdad
 requieren una autorización separada y una cuenta de ensayo. No hay
 DynamoDB/S3/Lambda. Ningún test usa red, cuentas o números reales.
@@ -13,15 +13,17 @@ DynamoDB/S3/Lambda. Ningún test usa red, cuentas o números reales.
 |---|---|
 | `internal/vault` | Vault age portado de [`lab/sessions`](../lab/sessions/README.md): keygen, prepare, renew (CAS por versión esperada), share, import, status. Mismos códigos de error constantes. `lab/sessions` queda intacto como banco preservado. `private.go`: `SealPrivate`/`OpenPrivate` cifran blobs de payload privado para destinatarios X25519 (máx. 64 KiB de texto plano) y devuelven/comprueban el sha256 del cifrado |
 | `cmd/sessions` | CLI con los mismos comandos/flags que el lab, más `selftest`; JSON sin secretos |
-| `internal/contract` | Sobre `envelope.v1`, payloads `whatsapp.pair/sync/send.v1`, `whatsapp.result.v1` y los privados `whatsapp.{pair,send,messages}.private.v1`. Los [JSON Schemas](../src/radar/schemas/) mandan; ver [reglas no aplicadas](#reglas-solo-de-schema) |
-| `internal/whatsapp` | Puertos `Client`, `LeaseStore`, `Ledger`, `SessionStore`, `BlobStore`, `Notifier`; handlers pair/sync/send; fakes en memoria (`fake.go`) |
+| `internal/contract` | Sobres `envelope.v1` y `envelope.v2`, payloads `whatsapp.pair/sync/send.v1`, `whatsapp.sync/list_chats/resolve_contact.v2`, `whatsapp.result.v1/v2` y los privados `whatsapp.{pair,send,messages,chats,contact}.private.v1`. Los [JSON Schemas](../src/radar/schemas/) mandan; ver [reglas no aplicadas](#reglas-solo-de-schema) |
+| `internal/whatsapp` | Puertos `Client`, `LeaseStore`, `Ledger`, `SessionStore`, `BlobStore`, `Notifier`; handlers pair/sync/send/list_chats/resolve_contact; fakes en memoria (`fake.go`) |
 | `internal/whatsapp/wameow` | `Client` real sobre whatsmeow + SQLite en Go puro ([diseño](#adaptador-whatsmeow-wameow)) |
 | `internal/schematest` | Solo para tests: compila `src/radar/schemas` con santhosh-tekuri/jsonschema v6.0.3 (como `contracts/validate/go`) |
 | `cmd/whatsapp` | Runner local: un sobre JSON por stdin, un resultado JSON por stdout. `--fake` (cliente en memoria) o `--real` con compuerta; sin modo responde `unsupported` |
 
 Decodificación (`contract.Decode` y los `Decode*Private`): máximo 32768 bytes,
 un objeto JSON, sin `null` en ningún nivel, campos desconocidos rechazados,
-`schema_version` ausente = `invalid_input` y distinto de 1 = `unsupported`. IDs
+`schema_version` ausente = `invalid_input` y distinto del esperado = `unsupported`
+(el sobre acepta 1 y 2; un payload v2 exige 2 y uno v1 exige 1; en un sobre v1,
+`page_size` y los campos de resultado v2 se rechazan). IDs
 ULID/UUID, refs opacas, `session_ref`, `blob_key` sin `..`/`/` inicial/segmentos
 vacíos, sha256 en minúsculas, fechas UTC con `Z` y fechas imposibles rechazadas.
 `causation_id`, `session_ref`, `refs` y `since_cursor` se omiten, nunca van
@@ -72,9 +74,35 @@ hasta el deadline (si no, `timeout`), filtrar chats habilitados, cifrar los
 mensajes conservados como `whatsapp.messages.private.v1` para
 `ResultRecipients`/`ResultScope`, guardar el blob con clave direccionada por
 contenido y devolver solo `message_count` + `private_ref`; después snapshot y
-liberar. Más de 100 mensajes o más de 32 KiB: `budget_exhausted` sin avanzar la
-sesión (el contrato v1 no tiene paginación). `LoggedOut` = `needs_reauth`;
-`StreamReplaced` = `session_conflict`.
+liberar. `LoggedOut` = `needs_reauth`; `StreamReplaced` = `session_conflict`.
+
+Sync v2 (paginado): el cliente guarda cada mensaje entrante como pendiente en el
+estado de sesión **antes** del ack a WhatsApp. `since_cursor` (si viene) se pasa a
+`Client.Ack` antes de conectar (cursor no emitido = `invalid_input`); `Client.Sync`
+borra los pendientes de chats no habilitados y devuelve los `page_size` más
+antiguos; el worker toma los que caben en 32 KiB, sella el blob y devuelve
+`message_count`, `next_cursor` (cursor del último devuelto) y `has_more`. Lo
+devuelto sigue pendiente hasta el siguiente `since_cursor`; lo que no cupo, también.
+Sync v1: misma ruta con 100 como límite; si no cabe todo, `budget_exhausted` **y
+se guarda la sesión** (los mensajes quedan pendientes para un sync v2); si cabe,
+se confirma con `Ack` tras sellar.
+
+List chats (v2): sin lease ni conexión ni snapshot; `Client.ListChats` desde el
+estado de sesión, mismo reparto por 32 KiB, refs/nombres/fechas solo en
+`whatsapp.chats.private.v1`; `next_cursor` = último `chat_ref`.
+
+Resolve contact (v2): ledger `approved` para `operation_id`; descifrar
+`whatsapp.contact.private.v1`; el registro debe coincidir en `owner_ref`,
+`approval_ref`, `source_ref` (`RecipientRef`) y sha256 del blob cifrado
+(`ContentSHA256`); lease, conectar, `Client.ResolveChat` (`IsOnWhatsApp` con un
+solo número). Encontrado: `approved -> provider_confirmed` guardando el `chat_ref`
+en `ProviderMessageID`, snapshot y `chat_ref` en el resultado; una reentrega lo
+devuelve sin otra consulta. No encontrado: `not_on_whatsapp`, ledger intacto.
+Nunca llama a `Send`.
+
+Send: antes del lease, conexión y claim se comprueba `Client.HasChat(recipient_ref)`;
+ref desconocida = `invalid_input` con el ledger en `approved` (antes daba
+`send_uncertain` tras el claim sin haber enviado nada).
 
 ## Pruebas
 
@@ -90,7 +118,7 @@ Conformidad: `internal/contract/golden_test.go` decodifica cada ejemplo de
 `whatsapp.*`; los válidos deben decodificar y su re-serialización Go debe pasar
 el schema, los inválidos deben rechazarse (`wrong-schema-version` con
 `unsupported`). Los tests de `internal/whatsapp` y `cmd/whatsapp` validan cada
-resultado producido contra `whatsapp.result.v1` y comprueban que ni texto, ni
+resultado producido contra `whatsapp.result.v1` o `.v2` (según el sobre) y comprueban que ni texto, ni
 chats, ni teléfonos, ni códigos aparecen en el JSON.
 
 Docker, desde la raíz del repositorio. El contexto incluye solo fuentes Go,
@@ -122,6 +150,10 @@ Get-Content send-envelope.json -Raw | docker run --rm -i --network none --read-o
   en el mundo falso; un worker real nunca modifica un `private_ref`.
 - Send siembra además un ledger `approved` coincidente con el sobre; eso no es una
   aprobación ni prueba de entrega real.
+- Resolve contact exige `--fake-private` con un `whatsapp.contact.private.v1`
+  sintético y siembra una aprobación ligada a ese blob; el cliente falso encuentra
+  todo número. List chats siembra dos chats sintéticos.
+- Send siembra también el `recipient_ref` como chat conocido.
 - Sync no necesita blob de entrada: el cliente falso devuelve un mensaje de un chat
   habilitado y otro descartado; el resultado trae solo el conteo y el `private_ref`
   del blob efímero (se pierde al terminar el proceso).
@@ -139,7 +171,10 @@ interfaz en compilación.
 | Connect | `ConnectContext` y espera `events.QR` (sin vincular: el QR se ignora y no se guarda) o `events.Connected` (sesión guardada). Fallo de conexión o `events.ConnectFailure` = `ErrTimeout` |
 | PairPhone | Rechaza una sesión ya vinculada (`ErrAlreadyPaired`). `PairPhone(ctx, phone, true, PairClientChrome, "Chrome (Linux)")` justo después de `Connect`, como pide la doc (~160 s de websocket). `DeviceProps.PlatformType = CHROME`. El código solo va al `Notifier` |
 | WaitPaired | Espera `events.PairSuccess` y devuelve `ID.User` (`types.JID.User`, sin servidor ni dispositivo); luego hasta 30 s por la reconexión que whatsmeow hace tras emparejar |
-| Sync | Espera `events.OfflineSyncCompleted` hasta el deadline (si no: `completed=false`, el worker da `timeout`). Recoge `events.Message` entrantes de texto (`conversation`/`extendedTextMessage.text`); ignora media, propios (`IsFromMe`), estados y listas de difusión. `observed_at` = timestamp del mensaje en UTC. Desconecta **antes** de leer el búfer y usa `SynchronousAck`: lo que llegue después no se confirma y WhatsApp lo reentrega (al menos una vez; puede repetirse). `since` se ignora: la cola offline vive en WhatsApp |
+| Sync | Espera `events.OfflineSyncCompleted` hasta el deadline (si no: `ErrTimeout`, el worker da `timeout`). Recoge `events.Message` entrantes de texto (`conversation`/`extendedTextMessage.text`); ignora media, propios (`IsFromMe`), estados y listas de difusión. Cada mensaje se inserta en `radar_pending(seq, chat_ref, text, observed_at)` dentro del handler; con `SynchronousAck` WhatsApp recibe el ack solo después. `observed_at` = timestamp del mensaje en UTC. Desconecta **antes** de leer la tabla: lo que llegue después no se confirma y WhatsApp lo reentrega (al menos una vez; puede repetirse). Borra pendientes de chats no habilitados y devuelve los más antiguos con cursor `p<seq>` |
+| Ack | `DELETE FROM radar_pending WHERE seq <= ?`; cursor mal formado o mayor que el último `seq` emitido (`sqlite_sequence`) = `ErrBadCursor`. Reenviar un cursor ya usado no borra nada más |
+| List chats | `radar_chat_ref` + `radar_chat_seen(ref, last_message_at)` ordenados por ref; nombre = nombre de libreta, nombre, negocio o push name del store de contactos de whatsmeow (local, máx. 128 caracteres); grupos sin nombre |
+| Resolve | `IsOnWhatsApp(ctx, []string{phone})` (nombre verificado en el whatsmeow fijado; el teléfono va con `+`); exactamente una respuesta con `IsIn` → JID PN (o el canónico) → `chatRef`; si no, `ErrNotOnWhatsApp`. Probado offline solo el mapeo de respuestas |
 | Historial | `ManualHistorySyncDownload = true` (nunca se descarga; el recibo se envía igual para que el teléfono no reintente) y `RequireFullSync = false`. `events.HistorySync` no llega y se ignoraría |
 | Chat refs | `wachat:c<24 hex aleatorios>` guardados en la tabla `radar_chat_ref(ref, jid)` dentro del mismo SQLite: viajan con el snapshot cifrado, son estables por chat y no contienen dígitos de teléfono. JID `@lid` se traduce a PN si el store conoce el mapeo. `Send` resuelve ref → JID; ref desconocida = `ErrUnknownChat` sin tocar la red |
 | Send | `SendMessage` con `waE2E.Message{Conversation}`; devuelve `resp.ID` como `provider_message_id` |
@@ -226,10 +261,11 @@ validación por schema (Python/Node/Go en `contracts/validate`) sigue cubriéndo
 
 | Pieza | Hoy | Pendiente |
 |---|---|---|
-| Cliente WhatsApp | `FakeClient`; `wameow` compilado y probado offline, nunca conectado | Prueba real con cuenta autorizada; cómo obtiene la app los `chat_ref` para habilitar chats o el primer contacto con un vendedor (el contrato v1 no lo define) |
+| Cliente WhatsApp | `FakeClient`; `wameow` compilado y probado offline, nunca conectado | Prueba real con cuenta autorizada, incluidos `IsOnWhatsApp` y nombres de contacto reales |
 | Lease y ledger | `MemLeases`, `MemLedger` | DynamoDB: lease condicional sobre `expires_at`; claim en transacción con la condición del lease |
 | Sesiones | `MemSessions` (CAS de versión) | Snapshot cifrado con `internal/vault`, blob S3 nuevo y puntero `PTR` por CAS |
 | Blobs privados | `MemBlobs`, identidad age efímera en el runner | S3 (escritura condicional), identidad del worker desde SSM, destinatarios de resultados por scope |
 | Notificación | `FakeNotifier` | Telegram con `protect_content` |
 | Entrada | Runner stdin/stdout | Handler Lambda/SQS |
-| Sync grande | `budget_exhausted` sobre 100 mensajes / 32 KiB | Paginación o cursor de salida en un contrato v2 |
+| Sync grande | Paginación v2 con pendientes en el SQLite de sesión | Si el CAS del snapshot falla tras un sync, los pendientes nuevos de esa corrida solo viven en el `/tmp` de la Lambda (el blob sellado sí queda referenciado) |
+| Ritmo de resolve/send | Una consulta por operación aprobada | Presupuesto por pasada y espera anti-ráfaga en la app (B-I09) |

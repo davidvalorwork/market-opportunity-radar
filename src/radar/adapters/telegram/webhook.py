@@ -24,8 +24,8 @@ architecture-final-review.md §4):
      stored (only the dedupe key). Accept persists through
      ``users.accept_consent`` under the same rules as commands (persist before
      the answer; failure -> 500, no answer); Decline stores only the dedupe key.
-  f. map to telegram.command.v1, validate, persist receipt + command + outbox in
-     ONE unit-of-work call, and only then return 200 with the acknowledgement as
+  f. map to telegram.command.v1 inside an envelope.v2 outbox entry, validate,
+     persist receipt + command + outbox in ONE unit-of-work call, and only then return 200 with the acknowledgement as
      a Bot API method in the body. Persistence failure -> 500 (Telegram retries);
      a command that was not stored is never acknowledged.
 
@@ -281,13 +281,13 @@ class Webhook:
         """Validate, then commit receipt + command + outbox atomically. False = duplicate."""
         now = self._clock()
         outbox = {
-            "schema_version": 1, "message_id": str(uuid.uuid4()), "operation_id": str(uuid.uuid4()),
+            "schema_version": 2, "message_id": str(uuid.uuid4()), "operation_id": str(uuid.uuid4()),
             "correlation_id": str(uuid.uuid4()), "owner_ref": user["owner_ref"], "kind": "telegram.command",
             "deadline": (now + DEADLINE).strftime("%Y-%m-%dT%H:%M:%SZ"), "attempt": 1, "payload": command,
         }
         try:
             validate("telegram.command.v1", command)
-            validate("envelope.v1", outbox)
+            validate("envelope.v2", outbox)
         except ValidationError:
             log.error("telegram update %s produced an invalid command", update_id)
             raise

@@ -3,6 +3,8 @@ package whatsapp
 import (
 	"context"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -11,16 +13,23 @@ import (
 )
 
 // FakeClient is an in-memory Client: no network, no whatsmeow, synthetic data only.
+// Its pending list and Chats stand in for the session SQLite of wameow.
 type FakeClient struct {
 	JID            string
 	Code           string
-	Messages       []contract.Message
-	SyncIncomplete bool             // never reaches OfflineSyncCompleted
-	Err            map[string]error // injected per call name: connect, pair, wait, sync, send, logout, snapshot
-	BlockWait      bool             // WaitPaired blocks until ctx ends
-	PanicAfterSend bool             // simulates a crash after the provider accepted the message
+	Messages       []contract.Message       // incoming: the next Sync receives (and "acks") them into the pending list
+	Chats          map[string]contract.Chat // chats known to the session, by ref
+	NotOnWhatsApp  map[string]bool          // phones ResolveChat reports as not registered
+	SyncIncomplete bool                     // never reaches OfflineSyncCompleted
+	Err            map[string]error         // injected per call name: connect, pair, wait, sync, ack, has_chat, list_chats, resolve, send, logout, snapshot
+	BlockWait      bool                     // WaitPaired blocks until ctx ends
+	PanicAfterSend bool                     // simulates a crash after the provider accepted the message
 	Calls          map[string]int
 	WaitDeadline   time.Time
+
+	pending  []Pending
+	seq      int64
+	resolved map[string]string // phone -> ref, so a phone keeps one ref
 }
 
 func (f *FakeClient) call(ctx context.Context, name string) error {
@@ -52,11 +61,92 @@ func (f *FakeClient) WaitPaired(ctx context.Context) (string, error) {
 	return f.JID, nil
 }
 
-func (f *FakeClient) Sync(ctx context.Context, _ string) ([]contract.Message, bool, error) {
+func (f *FakeClient) Sync(ctx context.Context, enabled []string, limit int) ([]Pending, bool, error) {
 	if err := f.call(ctx, "sync"); err != nil {
 		return nil, false, err
 	}
-	return f.Messages, !f.SyncIncomplete, nil
+	if f.SyncIncomplete {
+		return nil, false, ErrTimeout
+	}
+	for _, m := range f.Messages { // received and acked to the provider: from now on only the pending list holds them
+		f.seq++
+		f.pending = append(f.pending, Pending{Cursor(f.seq), m})
+		f.known(m.ChatRef, &m.ObservedAt)
+	}
+	f.Messages = nil
+	f.pending = slices.DeleteFunc(f.pending, func(p Pending) bool { return !slices.Contains(enabled, p.ChatRef) })
+	n := min(limit, len(f.pending))
+	return slices.Clone(f.pending[:n]), n < len(f.pending), nil
+}
+
+func (f *FakeClient) known(ref string, at *contract.Time) {
+	if f.Chats == nil {
+		f.Chats = map[string]contract.Chat{}
+	}
+	c := f.Chats[ref]
+	c.ChatRef = ref
+	if at != nil && (c.LastMessageAt == nil || at.After(c.LastMessageAt.Time)) {
+		t := *at
+		c.LastMessageAt = &t
+	}
+	f.Chats[ref] = c
+}
+
+// Pending returns a copy of the messages still held for a later page (test helper).
+func (f *FakeClient) Pending() []Pending { return slices.Clone(f.pending) }
+
+func (f *FakeClient) Ack(ctx context.Context, cursor string) error {
+	if err := f.call(ctx, "ack"); err != nil {
+		return err
+	}
+	seq, ok := CursorSeq(cursor)
+	if !ok || seq > f.seq {
+		return ErrBadCursor
+	}
+	f.pending = slices.DeleteFunc(f.pending, func(p Pending) bool { n, _ := CursorSeq(p.Cursor); return n <= seq })
+	return nil
+}
+
+func (f *FakeClient) HasChat(ctx context.Context, ref string) (bool, error) {
+	if err := f.call(ctx, "has_chat"); err != nil {
+		return false, err
+	}
+	_, ok := f.Chats[ref]
+	return ok, nil
+}
+
+func (f *FakeClient) ListChats(ctx context.Context, after string, limit int) ([]contract.Chat, bool, error) {
+	if err := f.call(ctx, "list_chats"); err != nil {
+		return nil, false, err
+	}
+	var out []contract.Chat
+	for _, ref := range slices.Sorted(maps.Keys(f.Chats)) {
+		if ref > after {
+			out = append(out, f.Chats[ref])
+		}
+	}
+	n := min(limit, len(out))
+	return out[:n], n < len(out), nil
+}
+
+// ResolveChat simulates IsOnWhatsApp: found unless the phone is in NotOnWhatsApp. Never sends.
+func (f *FakeClient) ResolveChat(ctx context.Context, phone string) (string, error) {
+	if err := f.call(ctx, "resolve"); err != nil {
+		return "", err
+	}
+	if f.NotOnWhatsApp[phone] {
+		return "", ErrNotOnWhatsApp
+	}
+	if ref, ok := f.resolved[phone]; ok {
+		return ref, nil
+	}
+	if f.resolved == nil {
+		f.resolved = map[string]string{}
+	}
+	ref := "wachat:resolved-" + strconv.Itoa(len(f.resolved)+1) + "x"
+	f.resolved[phone] = ref
+	f.known(ref, nil)
+	return ref, nil
 }
 
 func (f *FakeClient) Send(ctx context.Context, _, _ string) (string, error) {

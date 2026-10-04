@@ -28,7 +28,7 @@ const scope = "worker:whatsapp"
 
 type opts struct {
 	fake, real bool
-	// private is the *.private.v1 JSON seeded as the blob behind the payload's private_ref (pair and send only).
+	// private is the *.private.v1 JSON seeded as the blob behind the payload's private_ref (pair, send, resolve_contact).
 	private    string
 	sessionDir string    // --real: existing directory holding whatsmeow.db
 	authorized bool      // RADAR_WA_REAL_AUTHORIZED=yes
@@ -80,7 +80,7 @@ func run(o opts, in io.Reader) contract.Result {
 	blobs := &whatsapp.MemBlobs{}
 	seed := func(ref *contract.PrivateRef) *contract.Error {
 		if private == "" {
-			return contract.Fail(contract.InvalidInput, "--fake-private (or --private) is required for pair and send")
+			return contract.Fail(contract.InvalidInput, "--fake-private (or --private) is required for pair, send and resolve_contact")
 		}
 		ct, sum, err := vault.SealPrivate([]byte(private), id.Recipient())
 		if err != nil {
@@ -114,6 +114,24 @@ func run(o opts, in io.Reader) contract.Result {
 		}
 		ledger.Records[env.OperationID] = whatsapp.Record{State: whatsapp.Approved, OwnerRef: env.OwnerRef,
 			RecipientRef: p.RecipientRef, ApprovalRef: p.ApprovalRef, ContentSHA256: p.ContentSHA256}
+		client.Chats = map[string]contract.Chat{p.RecipientRef: {ChatRef: p.RecipientRef}}
+	case *contract.ListChats:
+		now := contract.Time{Time: time.Now().UTC()}
+		client.Chats = map[string]contract.Chat{
+			"wachat:fake-seller-1": {ChatRef: "wachat:fake-seller-1", DisplayName: "synthetic seller", LastMessageAt: &now},
+			"wachat:fake-seller-2": {ChatRef: "wachat:fake-seller-2"},
+		}
+	case *contract.ResolveContact:
+		if ce := seed(&p.PrivateRef); ce != nil {
+			return contract.Failed(ce)
+		}
+		priv, err := contract.DecodeContactPrivate([]byte(private))
+		if errors.As(err, &ce) {
+			return contract.Failed(ce)
+		}
+		// Seeded approval bound to this contact blob; the fake finds every number.
+		ledger.Records[env.OperationID] = whatsapp.Record{State: whatsapp.Approved, OwnerRef: env.OwnerRef,
+			RecipientRef: priv.SourceRef, ApprovalRef: priv.ApprovalRef, ContentSHA256: p.PrivateRef.SHA256}
 	}
 	var wc whatsapp.Client = client
 	var notifier whatsapp.Notifier = &whatsapp.FakeNotifier{}
@@ -143,7 +161,7 @@ func main() {
 	f.BoolVar(&o.fake, "fake", false, "use the in-memory fake WhatsApp client")
 	f.BoolVar(&o.real, "real", false, "use the whatsmeow adapter (needs RADAR_WA_REAL_AUTHORIZED=yes and --session-dir)")
 	f.StringVar(&o.sessionDir, "session-dir", "", "existing directory holding whatsmeow.db (--real)")
-	f.StringVar(&o.private, "fake-private", "", "synthetic *.private.v1 JSON seeded behind private_ref (pair/send)")
+	f.StringVar(&o.private, "fake-private", "", "synthetic *.private.v1 JSON seeded behind private_ref (pair/send/resolve_contact)")
 	f.StringVar(&o.private, "private", "", "alias of --fake-private for --real")
 	r := contract.Failed(contract.Fail(contract.InvalidInput, "invalid arguments"))
 	if f.Parse(os.Args[1:]) == nil && f.NArg() == 0 {
