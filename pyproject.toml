@@ -12,6 +12,8 @@ dependencies = ["jsonschema==4.26.0", "tzdata==2026.4"]
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "hypothesis==6.168.3"]
+aws = ["boto3==1.43.108"]
+aws-test = ["boto3==1.43.108", "moto[dynamodb]==5.2.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

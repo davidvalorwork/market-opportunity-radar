@@ -1,0 +1,4 @@
+# Preserve all baseline pins; AWS SDK and local emulator are optional extras.
+-r requirements.lock
+boto3==1.43.108
+moto[dynamodb]==5.2.3
