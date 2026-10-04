@@ -30,8 +30,10 @@ del diario falso. La recepción UoW es parcial, no
 conformidad completa A1; wire actions requieren age y proveedor verificado.
 No se conecta el worker Go ni AWS. La rama A3 incorpora la compatibilidad con
 consentimiento y alta de contacto B2b (`070ce46`), con directorio/allowlist
-sintéticos; revisión e integración siguen pendientes. No se elimina
-`commands.fifo`: R1 aún no medido. `/stop` solo cancela estado local durable,
+sintéticos; revisión e integración siguen pendientes.
+La compatibilidad B7 acepta sobres v1/v2, conserva su versión en descendientes
+y mantiene payloads browser/Telegram v1; no añade handlers WhatsApp.
+No se elimina `commands.fifo`: R1 aún no medido. `/stop` solo cancela estado local durable,
 sin Logout real; otros comandos se conservan pendientes en la cola.
 
 ## Fases F0–F15

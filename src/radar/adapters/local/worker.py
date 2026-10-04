@@ -3,16 +3,16 @@ from dataclasses import replace
 from hashlib import sha256
 from uuid import uuid4
 
-from radar.contracts import validate
 from radar.domain.core import CostInput, Entity, Evidence, Knowledge, Money, Signal
 from radar.domain.verticals.products import normalize
 from radar.ports.types import BlobPointer, ConditionalConflict
 from radar.ports.workflow import WorkerResult
 from .sqlite import canonical, digest, parse, stamp
+from .wire import validate_envelope
 
 
 def decode_result(store, *, owner_ref, envelope):
-    validate('envelope.v1',envelope)
+    validate_envelope(envelope)
     if envelope['owner_ref'] != owner_ref or envelope['kind'] != 'browser.result':
         raise ConditionalConflict('result_owner_or_kind')
     task,_,next_cursor = store.task(owner_ref=owner_ref,message_id=envelope.get('causation_id'))
@@ -56,7 +56,7 @@ class FakeWorker:
         self.executions = 0
 
     def execute(self, *, owner_ref, envelope):
-        validate('envelope.v1',envelope)
+        validate_envelope(envelope)
         task,offset,_ = self.store.task(owner_ref=owner_ref,message_id=envelope['message_id'])
         if task != envelope or envelope['owner_ref'] != owner_ref:
             raise ConditionalConflict('worker_task_binding')

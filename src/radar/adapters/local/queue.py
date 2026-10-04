@@ -2,10 +2,10 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from radar.contracts import validate
 from radar.ports.types import ConditionalConflict, QueueDelivery
 from .codec import dumps, loads
 from .sqlite import parse, stamp
+from .wire import validate_envelope
 
 
 class FakeQueue:
@@ -15,7 +15,7 @@ class FakeQueue:
         self.store,self.clock,self.capacity,self.visibility = store,clock,capacity,visibility
 
     def publish(self, *, owner_ref, entry):
-        validate('envelope.v1',entry.envelope)
+        validate_envelope(entry.envelope)
         if owner_ref != entry.envelope['owner_ref']:
             raise ConditionalConflict('queue_owner')
         msg = entry.envelope['message_id']

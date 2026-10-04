@@ -216,6 +216,9 @@ numérico **sintético**, consentimiento, `SavedSearch` por propietario y capaci
 autorizada; `webhook.handle_update(...)` recibe `/buscar fixture`. Después,
 `pump(owner_ref, search_ref="search:perfume")` procesa la cola durable baseline
 `commands.fifo`, worker falso y resultados v1 validados hasta el informe/UI falsa.
+Acepta sobres canónicos v1/v2 de B7 y conserva la versión del comando en cada
+tarea, continuación y resultado; browser/Telegram siguen usando payloads v1.
+El webhook actual emite sobre v2. Esto no habilita los nuevos handlers WhatsApp.
 [Ejemplo programático reproducible](tests/flow/test_search_flow.py) y
 [configuración sintética explícita](tests/flow/conftest.py).
 

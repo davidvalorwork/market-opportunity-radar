@@ -12,13 +12,13 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from radar.contracts import validate
 from radar.adapters.telegram import consent
 from radar.domain.core import utc
 from radar.ports.types import (AcceptedCommand, Approval, BlobPointer, ConditionalConflict,
                               Lease, LedgerRecord, LedgerState, OutboxEntry, PendingOutbox)
 from radar.ports.workflow import LocalAlertIntent, RunState
 from .codec import dumps, loads
+from .wire import validate_envelope
 
 
 def canonical(value):
@@ -136,7 +136,7 @@ class SQLiteStore:
         return self.db.execute('SELECT 1 FROM capabilities WHERE owner=? AND source=? AND enabled=1', (owner_ref, source_ref)).fetchone() is not None
 
     def _insert_outbox(self, owner, entry):
-        validate('envelope.v1', entry.envelope)
+        validate_envelope(entry.envelope)
         if entry.envelope['owner_ref'] != owner:
             raise ConditionalConflict('envelope_owner')
         msg = entry.envelope['message_id']
@@ -149,8 +149,8 @@ class SQLiteStore:
         self.failpoint('after_outbox')
 
     def accept_command(self, *, owner_ref, receipt, command, outbox):
-        validate('envelope.v1', command)
-        if command['owner_ref'] != owner_ref or command != outbox.envelope:
+        validate_envelope(command)
+        if command['kind'] != 'telegram.command' or command['owner_ref'] != owner_ref or command != outbox.envelope:
             raise ConditionalConflict('command_owner_or_outbox')
         actor = command['payload']['telegram_user_ref']
         if not self.authorize_actor(owner_ref=owner_ref, actor_ref=actor):
@@ -239,20 +239,20 @@ class SQLiteStore:
             self._alert(owner,LocalAlertIntent('budget:'+run.operation_id,run.actor_ref,run.operation_id,'budget_exhausted'))
             return
         updated = replace(run,status='running',jobs_used=run.jobs_used+1,pages_used=run.pages_used+1,version=run.version+1)
-        task = {'schema_version':1,'message_id':str(uuid4()),'operation_id':run.operation_id,
+        task = {'schema_version':command['schema_version'],'message_id':str(uuid4()),'operation_id':run.operation_id,
                 'correlation_id':command['correlation_id'],'causation_id':command['message_id'],
                 'owner_ref':owner,'kind':'browser.read','deadline':command['deadline'],'attempt':1,
                 'expected_version':updated.version,
                 'payload':{'schema_version':1,'capability_id':'fixture.local.read',
                            'target':{'origin':'http://localhost','path':'/public-fixture'},'fixture_only':True,
                            'mode':'direct','batch':search.page_size,'deadline_ms':1000}}
-        validate('envelope.v1',task)
+        validate_envelope(task)
         self.db.execute('INSERT INTO tasks VALUES(?,?,?,?,?,NULL)', (owner,task['message_id'],run.operation_id,dumps(task),run.cursor))
         self._insert_outbox(owner,OutboxEntry(task,'browser.fifo',owner+':'+search.source_ref))
         self._write_run(owner,updated)
 
     def start_run(self, *, owner_ref, search_ref, command, now):
-        validate('envelope.v1',command)
+        validate_envelope(command)
         with self.transaction():
             self._active(owner_ref)
             actor = command['payload']['telegram_user_ref']
@@ -303,7 +303,7 @@ class SQLiteStore:
         return loads(row[0]) if row else None
 
     def complete_worker(self, *, owner_ref, task_message_id, envelope, next_cursor, now):
-        validate('envelope.v1',envelope)
+        validate_envelope(envelope)
         with self.transaction():
             task,_,_ = self.task(owner_ref=owner_ref,message_id=task_message_id)
             self._validate_result_binding(owner_ref,task,envelope,now,require_live=False)
@@ -319,7 +319,7 @@ class SQLiteStore:
         return envelope
 
     def _validate_result_binding(self, owner, task, envelope, now, *, require_live=True):
-        if envelope['kind'] != 'browser.result' or envelope['owner_ref'] != owner or any(envelope.get(k) != task.get(k) for k in ('operation_id','correlation_id','deadline','expected_version')) or envelope.get('causation_id') != task['message_id'] or (require_live and parse(envelope['deadline']) <= now):
+        if envelope['kind'] != 'browser.result' or envelope['owner_ref'] != owner or any(envelope.get(k) != task.get(k) for k in ('schema_version','operation_id','correlation_id','deadline','expected_version')) or envelope.get('causation_id') != task['message_id'] or (require_live and parse(envelope['deadline']) <= now):
             raise ConditionalConflict('result_binding_or_expiry')
 
     def _alert(self, owner, intent):
@@ -329,7 +329,7 @@ class SQLiteStore:
     def commit_projection(self, *, owner_ref, result, report, now):
         from .worker import decode_result
         env = result.envelope
-        validate('envelope.v1',env)
+        validate_envelope(env)
         with self.transaction():
             if decode_result(self,owner_ref=owner_ref,envelope=env) != result:
                 raise ConditionalConflict('result_projection_must_derive_from_evidence')
@@ -367,7 +367,7 @@ class SQLiteStore:
 
     def projected_report(self, *, owner_ref, result):
         env = result.envelope
-        validate('envelope.v1',env)
+        validate_envelope(env)
         row = self.db.execute('SELECT hash,op,doc FROM projections WHERE owner=? AND msg=?',(owner_ref,env['message_id'])).fetchone()
         if env['owner_ref'] != owner_ref or result.content_hash != digest(env):
             raise ConditionalConflict('result_owner_or_hash')
