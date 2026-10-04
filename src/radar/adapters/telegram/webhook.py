@@ -9,6 +9,12 @@ architecture-final-review.md §4):
   c. safe JSON parse, update_id >= 0       -> 400
   d. dedupe by update_id                   -> 200, no new effect
   e. authorize numeric user_id (owner/collaborator); /start <code> invites
+  e2. consent gate (consent.py): until the user (owner included) accepts the
+     CURRENT consent version only /start, /mis_datos, /borrar, /stop and the
+     consent buttons work; anything else gets the consent prompt and is NOT
+     stored (only the dedupe key). Accept persists through
+     ``users.accept_consent`` under the same rules as commands (persist before
+     the answer; failure -> 500, no answer); Decline stores only the dedupe key.
   f. map to telegram.command.v1, validate, persist receipt + command + outbox in
      ONE unit-of-work call, and only then return 200 with the acknowledgement as
      a Bot API method in the body. Persistence failure -> 500 (Telegram retries);
@@ -28,9 +34,17 @@ Each maps to a future port:
   store (DynamoDB conditional put + TTL). ``remember`` is used for updates that
   produce no command (unauthorized users, rejected commands): only the dedupe
   key is persisted, nothing else.
-- ``users.get(telegram_user_id) -> {"role", "user_ref", "owner_ref"} | None``:
-  user directory / allowlist. ``user_ref`` and ``owner_ref`` are opaque refs
-  (common.v1 opaque_ref); the raw numeric ID never enters a payload.
+- ``users.get(telegram_user_id) -> {"role", "user_ref", "owner_ref",
+  "consent_version"?, "consent_accepted_at"?} | None``: user directory /
+  allowlist. ``user_ref`` and ``owner_ref`` are opaque refs (common.v1
+  opaque_ref); the raw numeric ID never enters a payload. No
+  ``consent_version`` = never accepted.
+- ``users.accept_consent(user_ref, version, accepted_at, idempotency_keys) -> bool``:
+  user directory port, consent record. ONE transaction (e.g. DynamoDB
+  TransactWriteItems) that conditionally creates every key in
+  ``idempotency_keys`` and sets ``consent_version``/``consent_accepted_at`` on
+  the user, plus an append-only consent history item kept as proof. Returns
+  False, writing nothing, if any key already exists; raises on any other failure.
 - ``invites.redeem(code_sha256, telegram_user_id, now) -> bool``: invite store.
   Atomically consumes an unused, unexpired (now < expires_at) invite stored by
   hash and enrolls the user as collaborator; False otherwise.
@@ -47,6 +61,7 @@ from datetime import timedelta
 
 from jsonschema import ValidationError
 
+from radar.adapters.telegram import consent
 from radar.contracts import validate
 
 MAX_BODY = 64 * 1024
@@ -154,6 +169,9 @@ class Webhook:
         role = user.get("role") if isinstance(user, dict) else None
         if role not in ("owner", "collaborator"):
             return self._reject(key, _reply(chat_id, NEUTRAL))
+        consented = consent.has_consent(user)
+        if not consented and name not in consent.UNGATED:
+            return self._reject(key, consent.prompt(chat_id))
         if name not in COMMANDS:
             return self._reject(key, _reply(chat_id, UNKNOWN_TEXT))
         if name in OWNER_ONLY and role != "owner":
@@ -165,8 +183,10 @@ class Webhook:
             args[TEXT_ARG[name]] = rest
         command = {"schema_version": 1, "update_id": update_id, "telegram_user_ref": user["user_ref"],
                    "command": name, "args": args}
-        stored = self._persist(update_id, [key], user, command)
-        return _response(200, _reply(chat_id, f"Recibido: /{name}. Te aviso cuando esté listo.") if stored else None)
+        if not self._persist(update_id, [key], user, command):
+            return _response(200)
+        ack = f"Recibido: /{name}. Te aviso cuando esté listo."
+        return _response(200, consent.prompt(chat_id, ack) if name == "start" and not consented else _reply(chat_id, ack))
 
     def _callback(self, update_id, key, query):
         query_id, sender = query.get("id"), query.get("from")
@@ -178,12 +198,28 @@ class Webhook:
         data = query.get("data")
         if not isinstance(data, str) or not CALLBACK_DATA.fullmatch(data):
             return self._reject(key, _answer(query_id, BAD_CALLBACK_TEXT))
+        if data.startswith(consent.CALLBACK_PREFIX):
+            return self._consent(update_id, key, query_id, user, data)
+        if not consent.has_consent(user):  # private chat id == user id
+            return self._reject(key, consent.prompt(sender["id"]))
         command = {"schema_version": 1, "update_id": update_id, "telegram_user_ref": user["user_ref"],
                    "command": "callback", "args": {}, "callback_ref": data}
         # ponytail: each callback_ref acts once per user; the app mints a fresh ref for repeatable buttons.
         keys = [key, f"tg:callback:{user['user_ref']}:{data}"]
         stored = self._persist(update_id, keys, user, command)
         return _response(200, _answer(query_id, "Recibido." if stored else DONE_CALLBACK_TEXT))
+
+    def _consent(self, update_id, key, query_id, user, data):
+        if data == consent.DECLINE:
+            return self._reject(key, _answer(query_id, consent.DECLINED_TEXT))
+        if data != consent.ACCEPT:  # stale version or forged: record nothing
+            return self._reject(key, _answer(query_id, BAD_CALLBACK_TEXT))
+        if consent.has_consent(user):
+            return self._reject(key, _answer(query_id, consent.ALREADY_TEXT))
+        keys = [key, f"tg:consent:{user['user_ref']}:{consent.CONSENT_VERSION}"]
+        stored = self._users.accept_consent(user["user_ref"], consent.CONSENT_VERSION, self._clock(), keys) is True
+        log.info("telegram update %s consent=%s stored=%s", update_id, consent.CONSENT_VERSION, stored)
+        return _response(200, _answer(query_id, consent.ACCEPTED_TEXT if stored else consent.ALREADY_TEXT))
 
     def _persist(self, update_id, keys, user, command):
         """Validate, then commit receipt + command + outbox atomically. False = duplicate."""
