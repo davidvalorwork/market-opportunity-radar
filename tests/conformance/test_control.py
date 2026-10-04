@@ -135,14 +135,20 @@ def test_keyset_keeps_position_when_previous_page_published(backend):
     for doc in docs:
         accept(backend, doc)
     first = pending(backend, limit=1)
-    assert first.entries[0].envelope == docs[0] and first.next_cursor is not None
+    assert len(first.entries) == 1
+    assert tuple(x.envelope for x in first.entries) == (docs[0],)
+    assert first.next_cursor is not None
     assert backend.outbox.mark_published(owner_ref=OWNER, message_id=docs[0]['message_id'],
                                          expected_version=0, published_at=NOW)
     backend.restart()
     second = pending(backend, limit=1, cursor=first.next_cursor)
+    assert len(second.entries) == 1
+    assert tuple(x.envelope for x in second.entries) == (docs[1],)
+    assert second.next_cursor is not None
     third = pending(backend, limit=1, cursor=second.next_cursor)
-    assert second.entries[0].envelope == docs[1]
-    assert third.entries[0].envelope == docs[2] and third.next_cursor is None
+    assert len(third.entries) == 1
+    assert tuple(x.envelope for x in third.entries) == (docs[2],)
+    assert third.next_cursor is None
 
 
 def test_outbox_publication_cas_checks_owner_version_and_once(backend):
@@ -178,12 +184,47 @@ def test_receipt_all_aliases_replay_original_ids_without_extra_outbox(backend):
     original = command()
     value = receipt(aliases=('event:alias_a', 'event:alias_b'))
     first = accept(backend, original, value)
+    assert backend.read_command(OWNER, first.operation_id) == original
     backend.restart()
+    assert backend.read_command(OWNER, first.operation_id) == original
     for ref in (value.event_ref, *value.idempotency_refs):
         replay = accept(backend, command(), receipt(ref))
         assert replay.replayed and (replay.operation_id, replay.message_id) == (
             first.operation_id, first.message_id)
+        assert backend.read_command(OWNER, first.operation_id) == original
     assert len(pending(backend).entries) == 1
+
+
+def test_oracle_rejects_overfull_page_with_preserved_cursor(backend, monkeypatch):
+    original_pending = backend.outbox.pending
+
+    def overfull(*, owner_ref, limit, cursor=None):
+        page = original_pending(owner_ref=owner_ref, limit=limit, cursor=cursor)
+        if limit == 1:
+            expanded = original_pending(owner_ref=owner_ref, limit=2, cursor=cursor)
+            return replace(page, entries=expanded.entries)
+        return page
+
+    # Deliberately violate only the page-size contract, keeping original cursors.
+    monkeypatch.setattr(backend.outbox, 'pending', overfull)
+    with pytest.raises(AssertionError):
+        test_keyset_keeps_position_when_previous_page_published(backend)
+
+
+def test_oracle_rejects_command_missing_only_after_restart(backend, monkeypatch):
+    original_restart = backend.restart
+
+    def missing_command(owner, op):
+        raise ConditionalConflict('synthetic_missing_command_after_restart')
+
+    def restart_with_missing_command_projection():
+        original_restart()
+        monkeypatch.setattr(backend, 'read_command', missing_command)
+
+    # Mutate the observation hook, not production SQL: receipts/outbox still exist.
+    monkeypatch.setattr(backend, 'restart', restart_with_missing_command_projection)
+    with pytest.raises(ConditionalConflict, match='synthetic_missing_command_after_restart'):
+        test_receipt_all_aliases_replay_original_ids_without_extra_outbox(backend)
 
 
 def test_replay_adds_new_receipt_refs_atomically(backend):

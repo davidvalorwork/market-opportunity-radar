@@ -10,11 +10,13 @@ no completa A5/F7 ni habilita despliegues, cuentas o efectos externos.
   por owner, epoch monotónico tras liberar/reabrir, expiración exacta, renovación
   con versión nueva y rechazo de snapshots/tokens/workers obsoletos.
 - `Outbox`: páginas acotadas por owner, continuación keyset cuando se publica
-  una página anterior, publicación CAS por owner/mensaje/versión y persistencia
+  una página anterior, longitud y contenido completo de cada página,
+  publicación CAS por owner/mensaje/versión y persistencia
   del mensaje cuando hay aceptación externa pero todavía no marca local.
 - `UnitOfWork.accept_command`: receipts principal y aliases, command y outbox
   atómicos; rollback tras cada etapa y antes de commit; replay con IDs originales;
-  rechazo de hashes/ref bindings incompatibles sin dejar aliases nuevos.
+  documento original íntegro tras aceptación, reinicio y cada replay; rechazo de
+  hashes/ref bindings incompatibles sin dejar aliases nuevos.
 
 Los comandos Telegram canónicos son sintéticos y generales (`pedir`), sin
 productos, precios, localidad, ofertas ni cuentas de redes obligatorios. El hash
@@ -28,10 +30,23 @@ $env:PYTHONPATH = 'src'
 python -m pytest -q -p no:cacheprovider tests/conformance
 ```
 
-Verificación local del 4 de octubre de 2026: 20 casos propios verdes y suite
-completa de 571 tests + 238 subtests verdes (38,41 s en Windows, venv a15).
-También pasan `scripts/check_docs.py` y `git diff --check`. Estos resultados
-corresponden únicamente al backend SQLite registrado.
+El corte inicial `56f9773` tenía 20 casos verdes (suite 571 + 238 subtests), pero
+la revisión independiente encontró dos brechas del oráculo: inspeccionar solo
+`entries[0]` no detectaba páginas sobre el límite; comprobar únicamente ausencia
+tras rollback no detectaba pérdida del command después de una aceptación válida.
+No fueron bugs del adaptador productivo. El follow-up exige longitud y tupla
+completa en las tres páginas, y lectura positiva del documento original tras
+aceptación, reinicio y todos los replays. Dos regresiones adversariales comprueban
+que estas aserciones rechazan una página excesiva conservando su cursor y una
+proyección de command ausente tras reinicio; esta última muta el hook de lectura,
+no borra filas ni modifica código productivo. Son pruebas del oráculo, no otro
+backend productivo ni un emulador AWS.
+
+Follow-up verificado localmente el 4 de octubre de 2026: 22 casos propios verdes,
+suite completa 573 tests + 238 subtests verdes (38,26 s en Windows, venv a15),
+`scripts/check_docs.py` y `git diff --check` verdes. Los resultados corresponden
+únicamente al backend SQLite registrado y a los dos tests adversariales del
+oráculo; no aportan evidencia AWS.
 
 `tests/conformance/conftest.py` registra **solo** `sqlite_factory`. La fixture
 `backend_factory` parametriza los mismos tests sin SQL en las aserciones. Un
