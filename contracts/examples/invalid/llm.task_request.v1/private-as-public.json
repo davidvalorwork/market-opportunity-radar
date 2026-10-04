@@ -1,0 +1,1 @@
+{"schema_version":1,"goal":"Tema libre","privacy_scope":"public","steps":[{"step_id":"answer","operation":"inform","arguments":{"private_ref":{"blob_key":"fixture/context.age","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","recipient_scope":"worker:task-router"}}}],"missing_fields":[],"confidence":1}

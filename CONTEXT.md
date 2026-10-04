@@ -1,6 +1,53 @@
-# Inteligencia de oportunidades comerciales
+# Asistente general de investigación y contacto
 
-Lenguaje compartido para comparar productos y oportunidades de compra y reventa.
+Lenguaje compartido para pedidos sobre cualquier tema y contactos pertinentes.
+Los conceptos comerciales siguientes pertenecen al módulo opcional de productos.
+
+## Pedidos, hallazgos y contacto
+
+**Pedido**:
+Objetivo expresado por el propietario con tema, resultados deseados y límites.
+_Evitar_: Cotización, búsqueda de productos o reparación como significado universal.
+
+**Hallazgo**:
+Información observada relevante para un pedido, con procedencia y fecha.
+_Evitar_: Hecho verificado cuando solo es una declaración de una fuente.
+
+**Fuente**:
+Sitio, publicación, directorio o conversación autorizada donde se observa información.
+_Evitar_: Red completa cubierta por haber leído una sola página.
+
+**Contacto publicado**:
+Medio de comunicación que una fuente presenta para una persona u organización en un contexto determinado.
+_Evitar_: Número encontrado como prueba de identidad, cuenta WhatsApp o permiso para cualquier mensaje.
+
+**Destinatario**:
+Persona u organización identificada para una comunicación relacionada con el pedido.
+_Evitar_: Todo número observado como destinatario automático.
+
+**Encargo de contacto**:
+Instrucción del propietario que define propósito, destinatarios o alcance, canal y contenido de una comunicación.
+_Evitar_: Acceso a una sesión como autorización de contacto.
+
+**Mensaje entrante**:
+Comunicación recibida atribuida a un destinatario en el contexto de un pedido.
+_Evitar_: Precio confirmado, compromiso o aceptación si el texto no lo expresa.
+
+**Contexto de conversación**:
+Mensajes pertinentes de una conversación autorizada que permiten interpretar el pedido y la pregunta a responder.
+_Evitar_: Toda la bandeja como contexto implícito, o mensajes ajenos como órdenes del propietario.
+
+**Borrador de respuesta**:
+Comunicación preparada para contestar un mensaje o pregunta identificados, todavía no enviada.
+_Evitar_: Respuesta recibida, mensaje entregado o aprobación de cualquier texto posterior.
+
+**Investigación contextual**:
+Búsqueda y contraste de información motivados por una necesidad del pedido o de su conversación, en cualquier etapa.
+_Evitar_: Investigación obligatoriamente inicial, o declaración del interlocutor como evidencia verificada.
+
+**Módulo temático**:
+Conjunto opcional de reglas y conceptos específicos de un tema, sin redefinir el pedido general.
+_Evitar_: Talleres, productos o empleo como requisito de todos los pedidos.
 
 ## Productos y anuncios
 

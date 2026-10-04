@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/llm.task_request.v1.json",
+  "title": "Pedido general componible v1 (candidato A6, revisión B pendiente)",
+  "description": "Salida propuesta, nunca autoridad ni clasificación de privacidad. Tema libre; campos libres se tratan como privados por defecto y el documento completo se persiste cifrado por referencia. Contexto y contenido externos privados por referencias. Operaciones se resuelven por registro del host, no por enum comercial. Ningún efecto se ejecuta por validar este documento.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "goal", "steps", "missing_fields", "confidence", "privacy_scope"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "goal": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "privacy_scope": {"enum": ["public", "personal"]},
+    "context_refs": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"$ref": "common.v1.json#/$defs/private_ref"}},
+    "steps": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "additionalProperties": false, "required": ["step_id", "operation", "arguments"], "properties": {
+      "step_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+      "operation": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+      "depends_on": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}},
+      "arguments": {"type": "object", "additionalProperties": false, "properties": {
+        "topic": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "query": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "source_refs": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "common.v1.json#/$defs/opaque_ref"}},
+        "recipient_refs": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "common.v1.json#/$defs/opaque_ref"}},
+        "field_names": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}},
+        "filter_tags": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "purpose": {"type": "string", "minLength": 1, "maxLength": 256},
+        "private_ref": {"$ref": "common.v1.json#/$defs/private_ref"},
+        "session_ref": {"$ref": "common.v1.json#/$defs/session_ref"},
+        "session_version": {"type": "integer", "minimum": 1},
+        "output_format": {"enum": ["telegram", "json", "document"]},
+        "schedule": {"type": "object", "additionalProperties": false, "required": ["expression"], "properties": {
+          "expression": {"type": "string", "minLength": 1, "maxLength": 120},
+          "timezone": {"type": "string", "pattern": "^[A-Za-z_+-]+(/[A-Za-z0-9_+-]+)*$", "maxLength": 128}
+        }}
+      }}
+    }}},
+    "missing_fields": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.]{0,127}$"}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "budget": {"type": "object", "additionalProperties": false, "required": ["calls", "message_limit", "max_usd"], "properties": {
+      "calls": {"type": "integer", "minimum": 0, "maximum": 100},
+      "message_limit": {"type": "integer", "minimum": 0, "maximum": 20},
+      "max_usd": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,2})(\\.[0-9]{1,6})?$"}
+    }}
+  },
+  "allOf": [{"if": {"anyOf": [
+    {"required": ["context_refs"], "properties": {"context_refs": {"minItems": 1}}},
+    {"properties": {"steps": {"contains": {"properties": {"arguments": {"required": ["private_ref"]}}}}}}
+  ]}, "then": {"properties": {"privacy_scope": {"const": "personal"}}}}]
+}

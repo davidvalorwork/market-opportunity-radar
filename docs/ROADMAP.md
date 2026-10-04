@@ -1,6 +1,6 @@
 # Roadmap y criterios de salida
 
-Actualizado: 2026-10-03, primer incremento A3. Implementación local por fases, sin fechas ni
+Actualizado: 2026-10-04, preparación A0g/A3. Implementación local por fases, sin fechas ni
 ingresos prometidos. Fuente de tareas/dueños/dependencias:
 [BOARD](work/BOARD.md), [CODEX_TASKS](work/CODEX_TASKS.md) y
 [plan detallado B](research/agent-b/implementation-plan.md).
@@ -9,11 +9,18 @@ Dirección y límites vigentes en [ARCHITECTURE](ARCHITECTURE.md),
 
 ## Estado observado y autoridad
 
+Alcance general confirmado por el usuario el 2026-10-03. La nueva dirección es
+buscar información y contactos, navegar fuentes y contactar por distintos canales
+sobre cualquier tema; no solo productos o talleres. [GENERAL_TASKS](GENERAL_TASKS.md)
+actualiza la dirección de F15/Ola 2 sin declarar operaciones implementadas.
+Conservar entregas y contratos existentes; proponer versiones nuevas con B.
+
 `6ae7cf2` es ancestro de `main`: la línea base de investigación, documentación
 y laboratorio está integrada localmente. No demuestra CI remota ni publicación.
 El usuario autorizó integrar A1 (`52b6014`), A2 (`9f74031`) y A0b (`a30c05f`)
 en main local, sin push, y continuar A3. A3 entrega su rama local para revisión;
-esa autorización no implica integrar A3, push, cuenta real o cloud. Las respuestas de arquitectura
+la integración de A3 en main exige la nueva revisión B pendiente. Esta preparación
+A0g/A3 no la sustituye ni autoriza push, cuenta real o cloud. Las respuestas de arquitectura
 R1–R4 y B-Q006 están reportadas por Claude; ver registro de decisiones.
 
 Lab habilitador: navegador Lambda/RIE con Playwright/OpenCLI, sesiones age,
@@ -43,6 +50,13 @@ reader/rollback no observa cambios provisionales. Conflictos desconocidos,
 crashes y fallos de persistencia siguen pendientes sin ACK. Estas pruebas no
 demuestran DLQ AWS, privacidad productiva ni fencing del proveedor real.
 
+Preparación A0g: concilia README/ROADMAP con el candidato A3 sin eliminar sus
+evidencias y límites ni restaurar la antigua restricción a productos. Los
+candidatos A6/A8/A9/A7/A10/A11/A14/A16/A18/A19 ya tienen pruebas offline; no son
+integración en main ni acceso a cuentas. Investigación contextual es componible
+en cualquier etapa. Lectura real de inbox, selección natural «esto/aquello»,
+clasificación de pendientes y filtro temporal «hoy» siguen sin acreditarse.
+
 ## Fases F0–F15
 
 El orden no es estrictamente numérico: F2/F4/F5 pueden avanzar cuando sus
@@ -67,12 +81,12 @@ separada antes de ejecutar el gate real.
 | F12 | Primera fuente real/evaluación (A) | **[U]** fuente/cuenta autorizadas; lectura inocua, dataset revisado, cobertura y límites visibles |
 | F13 | IA opcional (B) | **[U]** credenciales/presupuesto si aplica; flag apagado, caché y evaluación; mejora sin regresiones ni fallback pagado implícito |
 | F14 | Feedback, informes y operación (A/B) | JSON + Telegram, cobertura/salud, runbooks para DLQ/send_uncertain/needs_reauth y actualización de dependencias |
-| F15 | Segunda vertical | **[U]** alcance formalmente confirmado después de F12; fixtures y casos reales antes de generalizar dominio |
+| F15 | Núcleo general y módulos temáticos | Alcance general confirmado; router/fixtures multitema en candidatos locales, revisión/integración pendientes; nuevas fuentes/cuentas/efectos siguen con autorización específica |
 
-R1 comparará comandos directo desde Streams frente a `commands.fifo`; el baseline
-conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales desde el
-primer commit, implementa solo productos y no anticipa un framework universal.
-R4 exige permisos/capacidades antes
+R1 compara comandos directo desde Streams frente a `commands.fifo`; el baseline
+conserva cuatro colas hasta pruebas 0.5/1. R3 y su limitación a productos
+describían el alcance histórico; el encargo actual lo amplía al núcleo
+general de pedidos. R4 sigue exigiendo permisos/capacidades antes
 de toda ruta HTTP. B-Q006 permite respaldo local sin proxies/evasión según el
 informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 
@@ -84,7 +98,7 @@ informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 - Revisión del otro frente/coordinador antes de integrar; merge serial y push
   solo bajo autorización aplicable. No afirmar fase completa por un documento.
 
-La visión sigue siendo productos/reventa con estimaciones, no campañas ni
-compraventa automática. Telegram es UI única MVP; dashboard/Mini App,
-vectores y otras verticales son posteriores, no dependencias instaladas.
+La visión vigente es investigación y contacto general; productos/reventa es un
+módulo opcional. No habilita compraventa automática. Telegram es UI única MVP;
+dashboard/Mini App y vectores quedan posteriores, no dependencias instaladas.
 Rentabilidad requiere resultados comerciales consentidos, no porcentajes de fixtures.

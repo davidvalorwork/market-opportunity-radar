@@ -1,0 +1,1 @@
+{"schema_version":1,"goal":"Informar sobre un tema pendiente","privacy_scope":"public","steps":[{"step_id":"repeat","operation":"schedule","arguments":{"schedule":{"expression":"daily 09:00","timezone":"Europe/Madrid"}}},{"step_id":"report","operation":"inform","depends_on":["repeat"],"arguments":{}}],"missing_fields":["topic"],"confidence":0.4}

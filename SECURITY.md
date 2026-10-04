@@ -20,7 +20,7 @@ no autentica al productor ni revoca copias antiguas. Un import mantiene estado
 - No evadir captchas, bloqueos, controles de acceso ni restricciones de frecuencia.
 - No extraer cookies de archivos del navegador ni registrar contraseñas/tokens.
 - No entrar automáticamente en grupos ni leer chats/inbox privados por defecto.
-- No comprar, reservar, pagar, publicar, enviar mensajes ni seguir cuentas en el MVP.
+- El contacto forma parte del alcance general, pero ningún envío se habilita por importar cookies o por este cambio documental. Cada operación real requiere encargo/aprobación aplicable, destinatario, contenido, límites y capacidad verificada. Compras, reservas, pagos, publicaciones y follows requieren encargo separado.
 - Deshabilitar fuentes cuyo acceso requerido no esté verificado o autorizado.
 
 ## Amenazas y controles que deben implementarse
@@ -43,8 +43,11 @@ en ella. Un guard de patrones no es defensa universal ni sustituye controles de 
 
 `.local/`, cookies, `.env`, tokens, bases de datos, cachés, traces de navegador y
 catálogos reales no se versionan. Publicar solo fixtures sintéticos o datos autorizados.
-Minimizar información de vendedores; no recopilar teléfonos/perfiles como objetivo
-del radar. Definir retención, borrado y permisos antes de importar datos reales.
+Los pedidos de contacto pueden extraer teléfonos/perfiles publicados pertinentes,
+con fuente, fecha y contexto. No inferir titularidad ni WhatsApp válido solo por
+encontrar un número, ni ampliar a datos privados ajenos al pedido. Minimizar datos,
+definir retención/borrado/permisos y respetar bajas y restricciones de plataforma.
+Los números se guardan en evidencia privada, no en el repositorio ni la telemetría.
 
 Telemetría sin contenido sensible por defecto: IDs, estados, tiempos y clases de
 error. Si el usuario autoriza evidencia adicional, limitarla y redactarla. Evitar

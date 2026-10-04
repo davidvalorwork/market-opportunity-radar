@@ -1,0 +1,1 @@
+{"schema_version":1,"goal":"Preparar contacto","privacy_scope":"personal","steps":[{"step_id":"contact","operation":"contact","arguments":{"recipient_refs":["+10000000000"]}}],"missing_fields":[],"confidence":1}
