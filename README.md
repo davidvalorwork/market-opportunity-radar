@@ -16,7 +16,11 @@ runner de mediciones, un handler de navegador con fixture sintético y un CLI de
 sesiones cifradas. No contiene todavía un buscador, comparador comercial ni
 dashboard operativo. La configuración del producto sigue siendo una propuesta.
 No hay campañas, compras, ventas, mensajes o ganancias reales generadas por este
-proyecto. No es Job Radar ni una demo de facturas.
+proyecto. No es Job Radar ni una demo de facturas. La implementación A/B empieza
+por contratos, dominio y flujo local; ver [tablero](docs/work/BOARD.md),
+[tareas de Codex](docs/work/CODEX_TASKS.md) y
+[plan de implementación](docs/research/agent-b/implementation-plan.md).
+Iniciar estas tareas no autoriza nuevos merges/push, cloud ni contactos reales.
 
 ## Qué queremos lograr
 
@@ -69,7 +73,7 @@ Comparación por mercado + escenario de costos
           ↓
 Oportunidades ordenadas + datos faltantes + riesgos
           ↓
-Revisión humana y alertas locales
+Revisión humana e informes por Telegram (previstos)
 ```
 
 Una corrida podrá detenerse y reanudarse. Las fuentes bloqueadas no se contarán
@@ -117,18 +121,29 @@ Ver [modelo de costos](docs/COST_MODEL.md).
 - Paralelismo limitado por dominio/cuenta; no miles de pestañas en una sesión compartida.
 - Solicitudes batch solo cuando el backend realmente las soporte.
 - Reintentos acotados, backoff y suspensión temporal de fuentes con fallos repetidos.
-- Una ejecución CLI completa como objetivo; etapas reutilizables para depuración.
+- Telegram como interfaz única del producto MVP; herramientas CLI locales para
+  administración técnica, sesiones y pruebas, no una segunda UI comercial.
 
 Gratuito en cargos API no significa cero tokens, electricidad, hardware o tiempo
 humano. La cuota gratuita de una herramienta también puede agotarse.
 
 ## Arquitectura y calidad previstas
 
-Arquitectura hexagonal: dominio de productos y costos separado de extracción,
-persistencia, IA, CLI y dashboard. Base propuesta: Python para el pipeline,
-SQLite para un primer uso local, contratos JSON versionados y una interfaz web
-ligera. PostgreSQL/pgvector y TypeScript para una interfaz mayor son opciones de
-evolución, no dependencias instaladas ni migraciones ya decididas.
+Monolito modular hexagonal: dominio de productos/costos independiente de
+extracción, persistencia y LLM. Diseño de implementación: **cuatro Lambdas**
+(`bot` y `app` Python, `browser` Node, `whatsapp` Go) más CLI local
+`sessions-admin` Go. DynamoDB para control mutable, S3 para blobs inmutables,
+SSM para secretos y age para sesiones; SQLite/fakes para desarrollo local.
+Inbox/outbox transaccionales evitan perder tareas entre guardar y encolar;
+ledger durable e incertidumbre explícita evitan reenvíos ciegos, sin prometer
+exactly-once. Ningún componente cloud está instalado o desplegado por A0.
+
+HTTP permitido primero, navegador como respaldo y cuotas por dominio/cuenta.
+R1 (comandos directo desde Streams) se probará antes de retirar `commands.fifo`;
+la topología baseline conserva cuatro colas. Concurrencia/presupuesto limitan
+consumo, no garantizan USD 0. Productos es la única vertical a implementar ahora;
+nombres generales cuando sus casos los justifiquen, otras verticales pendientes.
+Telegram es la UI única del MVP; dashboard/Mini App y vectores quedan posteriores.
 
 La calidad se medirá sobre productos y oportunidades comerciales: equivalencias
 correctas, precios extraídos, disponibilidad, citas, costos, falsas oportunidades y
@@ -137,6 +152,10 @@ de este producto. [Arquitectura](docs/ARCHITECTURE.md) · [Evaluaciones](docs/EV
 
 ## Documentación
 
+- [Tablero A/B y propiedad de archivos](docs/work/BOARD.md)
+  · [primeras tareas A](docs/work/CODEX_TASKS.md)
+  · [plan F0–F15](docs/research/agent-b/implementation-plan.md)
+  · [revisión de arquitectura final](docs/research/architecture-final-review.md).
 - [Reparto de implementación y cierre de coordinación con Claude](docs/testing/WORKPLAN.md).
 - [Resultados Docker, incidencias y límites de costos](docs/testing/LOCAL_RESULTS.md).
 - Laboratorios ejecutables: [navegador Lambda/RIE](lab/browser/README.md)
@@ -192,6 +211,7 @@ git clone https://github.com/davidvalorwork/market-opportunity-radar.git
 cd market-opportunity-radar
 python scripts/check_docs.py
 python -m unittest discover -s tests -q
+python -m pytest -q tests
 node --test lab/browser/selftest.mjs
 ```
 
@@ -199,7 +219,11 @@ El control valida enlaces locales, configuración documental, archivos requerido
 ausencia de archivos privados versionados. Los tests Python cubren también el
 runner con Docker simulado; los de Node comprueban contratos sintéticos sin
 dependencias externas. Ninguno reemplaza las pruebas Docker ni prueba redes
-sociales. GitHub Actions ejecuta los controles Python en Windows y Linux.
+sociales. GitHub Actions ejecuta guardas documentales y pytest en Windows y Linux.
+Pytest requiere las dependencias de test: en la línea base sin `pyproject.toml`,
+CI usa `pytest==9.1.1`; después de B1 usará el extra `.[test]` del proyecto.
+Node/Go del producto se incorporarán a CI al integrar B1/B3; no se presume
+que sus contratos o workers estén listos por existir este documento.
 
 ## Límites y siguiente entrega
 
