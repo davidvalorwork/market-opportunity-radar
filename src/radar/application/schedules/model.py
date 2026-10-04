@@ -1,7 +1,9 @@
 """Small scheduling boundary over immutable, privately stored confirmed templates."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 import re
+from hashlib import sha256
+import json
 from typing import Callable, Protocol
 
 
@@ -51,6 +53,7 @@ class TemplateBinding:
     session_version: int | None
     template_ref: str = 'template:one'
     minimum_units: int = 1
+    recurrence_hash: str | None = None
 
     def __post_init__(self):
         for value in (self.owner_ref, self.actor_ref, self.private_ref, self.template_ref):
@@ -65,6 +68,8 @@ class TemplateBinding:
             ref(self.session_ref)
             integer(self.session_version, 1, 2**31-1)
         integer(self.minimum_units, 1, 1000)
+        if self.recurrence_hash is not None and not re.fullmatch('[0-9a-f]{64}', self.recurrence_hash):
+            raise ValueError('recurrence_hash_invalid')
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,11 @@ class Recurrence:
                 return chosen
         raise ValueError('timezone_calendar_unavailable')
 
+    def fingerprint(self):
+        data = asdict(self)
+        data['start_at'] = utc(self.start_at).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        return sha256(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
 
 @dataclass(frozen=True)
 class Quota:
@@ -183,6 +193,8 @@ class Schedule:
         integer(self.units_per_occurrence, 1, 1000)
         if self.units_per_occurrence < self.binding.minimum_units:
             raise ValueError('schedule_budget_below_template')
+        if self.binding.recurrence_hash is not None and self.binding.recurrence_hash != self.recurrence.fingerprint():
+            raise ValueError('confirmed_calendar_mismatch')
 
 
 @dataclass(frozen=True)
@@ -201,4 +213,5 @@ class TickReport:
     examined: int
     backlog: bool
     blocked: tuple[tuple[str, str], ...]
+    next_cursor: tuple[str, str] | None = None
     cost_usd: None = None

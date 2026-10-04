@@ -185,6 +185,51 @@ def test_two_connections_concurrent_ticks_reserve_once(env):
         second.close()
 
 
+@pytest.mark.parametrize('stage', ['schedule_reserved', 'schedule_outbox', 'schedule_advanced'])
+def test_authority_lost_during_occurrence_rolls_back_before_commit(env, stage):
+    store, authority, _, scheduler = env
+    scheduler.create(schedule())
+    def lose_authority(point):
+        if point == stage:
+            authority.denials['owner:one'] = 'template_cancelled'
+    store.failpoint = lose_authority
+    with pytest.raises(ScheduleDenied, match='template_cancelled'):
+        tick(scheduler)
+    store.failpoint = lambda point: None
+    assert not status(scheduler)
+    assert store.db.execute('SELECT COUNT(*) FROM schedule_occurrences').fetchone()[0] == 0
+    assert store.db.execute('SELECT SUM(units) FROM schedule_windows').fetchone()[0] is None
+
+
+def test_clock_advanced_past_authority_during_resolver_cannot_enqueue(env):
+    store, authority, clock, scheduler = env
+    scheduler.create(schedule())
+    original = authority.resolve
+    def slow_resolver(bind, *, now):
+        proof = original(bind, now=now)
+        clock.now = proof.authority_expires_at
+        return proof
+    authority.resolve = slow_resolver
+    report = tick(scheduler)
+    assert report.created == 0 and report.blocked == (('schedule:one', 'authority_expired'),)
+    assert not status(scheduler)
+
+
+def test_worker_authority_lost_during_prepare_does_not_return_intent(env):
+    store, authority, _, scheduler = env
+    scheduler.create(schedule())
+    tick(scheduler)
+    occurrence = status(scheduler)[0][1]
+    def lose_authority(stage):
+        if stage == 'schedule_prepared':
+            authority.denials['owner:one'] = 'template_cancelled'
+    store.failpoint = lose_authority
+    with pytest.raises(ScheduleDenied, match='template_cancelled'):
+        prepare(scheduler, occurrence)
+    store.failpoint = lambda stage: None
+    assert status(scheduler)[0][2] == 'pending'
+
+
 @pytest.mark.parametrize('denial', ['template_cancelled', 'template_changed', 'session_changed', 'authority_expired'])
 def test_independent_authority_denied_before_tick_and_worker(env, denial):
     _, authority, _, scheduler = env
@@ -206,6 +251,20 @@ def test_tick_preserves_backlog_and_exposes_denial(env, denial):
     assert report.created == 0 and report.backlog
     assert report.blocked == (('schedule:one', denial),)
     assert not status(scheduler)
+
+
+def test_tick_keyset_can_pass_denied_schedule_without_global_scan(env):
+    store, authority, _, scheduler = env
+    scheduler.create(schedule('schedule:a'))
+    other = replace(binding(), private_ref='private:template:two', template_ref='template:two')
+    authority.confirmed[(other.owner_ref, other.private_ref)] = TemplateAuthority(other, NOW+timedelta(days=1))
+    scheduler.create(schedule('schedule:b', bind=other))
+    authority.confirmed.pop(('owner:one', 'private:template:one'))
+    first = tick(scheduler, max_schedules=1)
+    assert first.created == 0 and first.next_cursor is not None
+    second = tick(scheduler, max_schedules=1, after=first.next_cursor)
+    assert second.created == 1
+    assert store.db.execute('SELECT schedule FROM schedule_occurrences').fetchone()[0] == 'schedule:b'
 
 
 @pytest.mark.parametrize('change', ['revoke', 'stop', 'consent', 'role'])
@@ -373,11 +432,12 @@ def test_recurrence_limits_and_unsupported_explicit(kwargs, code):
         Recurrence(**options)
 
 
-def test_timezone_resolver_unavailable_fails_before_acceptance(env):
+@pytest.mark.parametrize('kind', ['daily', 'interval'])
+def test_timezone_resolver_unavailable_fails_before_acceptance(env, kind):
     store, authority, clock, _ = env
     def unavailable(name):
         raise ValueError('timezone_unavailable')
     scheduler = LocalScheduler(store, authority=authority, quota=Quota(), clock=clock, zones=unavailable)
     with pytest.raises(ValueError, match='timezone_unavailable'):
-        scheduler.create(Schedule('schedule:one', binding(), Recurrence('daily', NOW)))
+        scheduler.create(Schedule('schedule:one', binding(), Recurrence(kind, NOW)))
     assert not scheduler.list(owner_ref='owner:one', actor_ref='actor:one')
