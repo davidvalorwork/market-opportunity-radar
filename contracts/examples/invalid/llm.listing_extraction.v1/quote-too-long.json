@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "title": "Zapatos talla 42",
+  "brand": null,
+  "model": null,
+  "variant": "talla 42",
+  "condition": "used",
+  "quantity": 1,
+  "price": {
+    "amount": "20.00",
+    "currency": "USD"
+  },
+  "authenticity_claim": "none",
+  "uncertain_fields": [],
+  "evidence_quote": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "title": "Perfume Ejemplo Noir 100 ml original sellado",
+  "brand": "Ejemplo",
+  "model": "Noir",
+  "variant": "100 ml",
+  "condition": "new",
+  "quantity": 2,
+  "price": {
+    "amount": "45.00",
+    "currency": "USD"
+  },
+  "authenticity_claim": "declared_original",
+  "uncertain_fields": [],
+  "evidence_quote": "Perfume Ejemplo Noir 100 ml original sellado, 45$ c/u, quedan 2"
+}

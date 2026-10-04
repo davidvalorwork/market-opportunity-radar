@@ -1,0 +1,21 @@
+# Dockerfile-specific allowlist: the Python package, contracts examples and the tests it runs.
+**
+!contracts/
+!contracts/capabilities.json
+!contracts/examples/
+!contracts/examples/**
+!src/
+!src/radar/
+!src/radar/**/*.py
+!src/radar/schemas/
+!src/radar/schemas/*.json
+!tests/
+!tests/test_contracts.py
+!tests/openrouter/
+!tests/openrouter/*.py
+!pyproject.toml
+!requirements.lock
+!LICENSE
+!NOTICE
+**/__pycache__/
+**/.env*
