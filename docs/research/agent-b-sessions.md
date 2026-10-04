@@ -1460,6 +1460,7 @@ anterior; B-D005, B-D007 y B-D008 siguen vigentes.
 | B-D062 | Nueva | R1–R4 del plan: Streams como consumidor de comandos, techos gratuitos, núcleo con nombres generales, HTTP sujeto a capacidades | Plan §1 |
 | B-D063 | Nueva | Metodología de trabajo paralelo de §2 y mapa de propiedad de §3 | Plan §2–§3 |
 | B-D064 | Nueva, requiere al usuario | Paso 0: commitear la línea base y fusionarla a `main` antes de abrir worktrees | Plan §2.1, AGENTS.md |
+| B-D065 | Nueva (pedido del usuario) | Reutilizar la clave de OpenRouter de inventarioIA por referencia al parámetro SSM `/inventarioia/openrouter_api_key` (`RADAR_OPENROUTER_KEY_PARAM`), sin copiar el valor; clave dedicada con límite mensual cuando se active la IA | [Inventario de secretos](agent-b/secrets.md) |
 
 ## Coordinación con A
 
