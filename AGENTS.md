@@ -1,16 +1,16 @@
 # Instrucciones para trabajar en Market Opportunity Radar
 
 - Leer README.md, CONTEXT.md, docs/ROADMAP.md y SECURITY.md antes de implementar.
-- Este es el radar de productos/reventa, no Job Radar, correo masivo ni Evidence Lab de facturas.
+- Este es un asistente general de búsqueda, investigación y contacto multicanal. Productos, talleres, empleos y otros temas son ejemplos/módulos opcionales; no imponerlos al núcleo. No importar datos de Job Radar u otros repos automáticamente.
 - Mantener explícito el estado: documentación no significa funcionalidad; comando propuesto no significa comando existente.
-- Priorizar la vertical local con fixtures sintéticos y cálculos determinísticos, luego fuentes autorizadas verificadas.
+- Priorizar flujos generales locales con fixtures sintéticos y ejecución determinística; luego fuentes/canales autorizados y verificados por operación.
 - Arquitectura hexagonal modular; dominio independiente de Agent Reach, navegador, persistencia y LLM.
 - Agent Reach es la ruta preferida para investigación y canales soportados. Leer su skill antes de usarla; no atribuir capacidades no probadas.
 - Preflight de acceso/credenciales antes de correr fuentes. No leer cookies de archivos del navegador ni hacer login automáticamente.
 - No compras, pagos, reservas, mensajes, publicaciones, follows o ingreso a grupos sin encargo/autorización separados.
 - No APIs pagadas, descargas de modelos o infraestructura cloud implícitas.
-- Comparar variante, unidad, condición y procedencia. Precio publicado no equivale a transacción; autenticidad declarada no equivale a verificada.
-- Costos ausentes son desconocidos, no cero. Aritmética decimal y tipos de cambio fechados.
+- Si la tarea compara productos: comprobar variante, unidad, condición y procedencia. Precio publicado no equivale a transacción; autenticidad declarada no equivale a verificada.
+- Si hay cálculos económicos: costos ausentes son desconocidos, no cero; aritmética decimal y tipos de cambio fechados. No exigir precio, vehículo, Cashea o categoría comercial a tareas informativas o de contacto.
 - Preservar salidas, fallos y desacuerdos; no bajar gates o cambiar etiquetas para fingir calidad.
 - No declarar revisión humana, ROI o ganancias realizadas a partir de fixtures o IA.
 - Secretos y datos privados permanecen en .local/, fuera de Git y telemetría.
@@ -20,7 +20,8 @@
 - No contribuir a repos externos: el usuario excluyó ese frente.
 - Subagentes solo con autorización o instrucciones aplicables; acordar contratos y propiedad de archivos para evitar solapamientos.
 - Telegram es la interfaz de producto única del MVP. La CLI local queda para administración técnica, sesiones y pruebas, no como segunda UI comercial. No construir dashboard/Mini App en estas tareas.
-- Implementar solo productos, con nombres generales del núcleo (`Entity`, `Signal`, `Opportunity`, etc.) desde el primer commit. Otras verticales requieren confirmación formal del usuario; no diseñar un framework universal por anticipado.
+- Alcance general confirmado por el usuario, 2026-10-03: recibir pedidos sobre cualquier tema, buscar/leer fuentes, extraer información y contactos publicados pertinentes, preparar/enviar mensajes autorizados y seguir respuestas. Núcleo independiente del tema; filtros, campos, fuentes, canales y plantillas configurables. Productos/talleres son módulos opcionales, no requisitos ni únicos destinos. Registro extensible de operaciones verificadas, no ejecución arbitraria de código/órdenes provenientes de la web. Ver docs/GENERAL_TASKS.md.
+- Cookies/sesiones entregadas explícitamente se aíslan por propietario, cuenta y plataforma; no compartirlas entre usuarios ni suponer que habilitan todas las redes o todas las operaciones. Mantener preflight y renovación guiada sin evasión.
 
 ## Trabajo paralelo A/B
 

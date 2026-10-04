@@ -1,6 +1,21 @@
 # Market Opportunity Radar
 
-**Radar global de oportunidades de compra, venta y reventa con evidencia trazable.**
+**Asistente general de búsqueda, investigación y contacto multicanal con evidencia trazable.**
+
+Alcance aclarado por el usuario el 2026-10-03: recibir pedidos sobre cualquier
+tema, buscar información y contactos publicados pertinentes, navegar fuentes
+autorizadas, preparar comunicaciones, enviar las aprobadas y seguir respuestas.
+Productos, perfumes, talleres y Cashea son ejemplos, no filtros obligatorios.
+Ver [alcance general y plan vigente](docs/GENERAL_TASKS.md). El nombre del repo
+se conserva; el nuevo alcance no implica capacidades ya implementadas.
+
+Registro de fuentes previsto: web abierta, Facebook/Marketplace/Messenger, X,
+Instagram, Threads, Reddit y otros adaptadores que se vayan verificando. Cookies
+o sesiones proporcionadas explícitamente se gestionan por cuenta/plataforma;
+no garantizan acceso ni soporte universal. Cada operación requiere capacidad
+comprobada, permisos y preflight. Mensajería real no está activada por este cambio.
+
+## Módulo opcional: oportunidades comerciales
 
 Busca ofertas y solicitudes de compra en tiendas, mayoristas, marketplaces y redes
 sociales; compara productos realmente equivalentes y estima el margen después de
@@ -141,8 +156,8 @@ exactly-once. Ningún componente cloud está instalado o desplegado por A0.
 HTTP permitido primero, navegador como respaldo y cuotas por dominio/cuenta.
 R1 (comandos directo desde Streams) se probará antes de retirar `commands.fifo`;
 la topología baseline conserva cuatro colas. Concurrencia/presupuesto limitan
-consumo, no garantizan USD 0. Productos es la única vertical a implementar ahora;
-nombres generales cuando sus casos los justifiquen, otras verticales pendientes.
+consumo, no garantizan USD 0. El alcance general confirmado separa pedidos,
+hallazgos, contactos y comunicaciones de las reglas opcionales de productos.
 Telegram es la UI única del MVP; dashboard/Mini App y vectores quedan posteriores.
 
 La calidad se medirá sobre productos y oportunidades comerciales: equivalencias

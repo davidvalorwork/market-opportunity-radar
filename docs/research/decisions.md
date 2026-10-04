@@ -35,7 +35,19 @@ Este registro distingue límites de trabajo acordados de alternativas provisiona
 | R-028 | B-Q006 respondida según informe B; fallback no implementado | Si una fuente rechaza la sesión desde AWS, permitir respaldo local en el PC autorizado; sin proxies, evasión ni login oculto | El informe B registra la respuesta; cada fuente/cuenta real y canary todavía requiere encargo separado |
 | R-029 | Encargo vigente | Iniciar tareas A en worktrees aislados y entregar commits locales para revisión | "Empieza tus codex tasks" autoriza implementación local; no nuevos merges, push, AWS o contactos |
 
+## G-001 — Alcance general confirmado por el usuario, 2026-10-03
+
+El pedido actual amplía y sustituye la restricción temática de R-027/R3:
+asistente general para buscar información y contactos publicados pertinentes,
+navegar fuentes autorizadas, enviar comunicaciones aprobadas y seguir respuestas
+sobre cualquier tema. Talleres, Cashea, perfumes, empleos y productos son ejemplos
+o módulos opcionales, no campos obligatorios del núcleo. Dirección detallada en
+[GENERAL_TASKS](../GENERAL_TASKS.md). No cambia la titularidad de contratos B,
+versiones publicadas ni autoriza automáticamente cuentas, cloud o efectos reales.
+R-027 se conserva como decisión histórica, no como restricción temática vigente.
+
 ## Adopción de B-D061–B-D064 — A0, 2026-10-03
+
 
 | ID de B | Estado integrado por A | Límite |
 |---|---|---|

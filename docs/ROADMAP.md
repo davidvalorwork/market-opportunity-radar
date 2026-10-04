@@ -9,6 +9,12 @@ Dirección y límites vigentes en [ARCHITECTURE](ARCHITECTURE.md),
 
 ## Estado observado y autoridad
 
+Alcance general confirmado por el usuario el 2026-10-03. La nueva dirección es
+buscar información y contactos, navegar fuentes y contactar por distintos canales
+sobre cualquier tema; no solo productos o talleres. [GENERAL_TASKS](GENERAL_TASKS.md)
+actualiza la dirección de F15/Ola 2 sin declarar operaciones implementadas.
+Conservar entregas y contratos existentes; proponer versiones nuevas con B.
+
 `6ae7cf2` es ancestro de `main`: la línea base de investigación, documentación
 y laboratorio está integrada localmente. No demuestra CI remota ni publicación.
 El usuario autorizó iniciar tareas A; A0 entrega una rama local para revisión,
@@ -44,11 +50,12 @@ separada antes de ejecutar el gate real.
 | F12 | Primera fuente real/evaluación (A) | **[U]** fuente/cuenta autorizadas; lectura inocua, dataset revisado, cobertura y límites visibles |
 | F13 | IA opcional (B) | **[U]** credenciales/presupuesto si aplica; flag apagado, caché y evaluación; mejora sin regresiones ni fallback pagado implícito |
 | F14 | Feedback, informes y operación (A/B) | JSON + Telegram, cobertura/salud, runbooks para DLQ/send_uncertain/needs_reauth y actualización de dependencias |
-| F15 | Segunda vertical | **[U]** alcance formalmente confirmado después de F12; fixtures y casos reales antes de generalizar dominio |
+| F15 | Núcleo general y módulos temáticos | Alcance general confirmado; contratos/router y fixtures multitema pendientes; nuevas fuentes/cuentas/efectos siguen con autorización específica |
 
 R1 compara comandos directo desde Streams frente a `commands.fifo`; el baseline
-conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales justificados
-en productos, no implementa otras verticales. R4 exige permisos/capacidades antes
+conserva cuatro colas hasta pruebas 0.5/1. R3 y su limitación a productos
+describían el alcance histórico; el encargo actual lo amplía al núcleo
+general de pedidos. R4 sigue exigiendo permisos/capacidades antes
 de toda ruta HTTP. B-Q006 permite respaldo local sin proxies/evasión según el
 informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 
@@ -60,7 +67,7 @@ informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 - Revisión del otro frente/coordinador antes de integrar; merge serial y push
   solo bajo autorización aplicable. No afirmar fase completa por un documento.
 
-La visión sigue siendo productos/reventa con estimaciones, no campañas ni
-compraventa automática. Telegram es UI única MVP; dashboard/Mini App,
-vectores y otras verticales son posteriores, no dependencias instaladas.
+La visión vigente es investigación y contacto general; productos/reventa es un
+módulo opcional. No habilita compraventa automática. Telegram es UI única MVP;
+dashboard/Mini App y vectores quedan posteriores, no dependencias instaladas.
 Rentabilidad requiere resultados comerciales consentidos, no porcentajes de fixtures.
