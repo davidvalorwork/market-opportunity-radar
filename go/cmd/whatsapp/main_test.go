@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +28,7 @@ func TestRunner(t *testing.T) {
 		name, in, private, code string
 		fake                    bool
 	}{
-		{"real adapter absent", send, hola, contract.Unsupported, false},
+		{"no mode selected", send, hola, contract.Unsupported, false},
 		{"fake send", send, hola, "", true},
 		{"fake send with utf-8 bom", "\xef\xbb\xbf" + send, hola, "", true},
 		{"fake send without private", send, "", contract.InvalidInput, true},
@@ -38,7 +41,7 @@ func TestRunner(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r := run(c.fake, c.private, strings.NewReader(c.in))
+			r := run(opts{fake: c.fake, private: c.private}, strings.NewReader(c.in))
 			got := ""
 			if r.Error != nil {
 				got = r.Error.Code
@@ -49,6 +52,41 @@ func TestRunner(t *testing.T) {
 			schematest.Validate(t, "whatsapp.result.v1", r)
 			if out, _ := json.Marshal(r); strings.Contains(string(out), "synthetic") || strings.Contains(string(out), "hola") || strings.Contains(string(out), "FAKE0000") {
 				t.Fatalf("private data in result: %s", out)
+			}
+		})
+	}
+}
+
+// failReader fails the test if the gate lets a refused run read stdin.
+type failReader struct{ t *testing.T }
+
+func (f failReader) Read([]byte) (int, error) { f.t.Fatal("stdin read by a refused run"); return 0, io.EOF }
+
+// The --real gate refuses before reading stdin or touching disk. No case here can reach
+// wameow.Client.Connect, so no test dials WhatsApp.
+func TestRealGate(t *testing.T) {
+	dir := t.TempDir()
+	send := envelope(contract.KindSend, "1", `{"schema_version":1,"recipient_ref":"wachat:seller-a","approval_ref":"approval:ap-1","content_sha256":"`+contract.SHA256Hex("hola")+`",`+pref+`}`)
+	cases := []struct {
+		name string
+		o    opts
+		in   io.Reader
+	}{
+		{"real without authorization", opts{real: true, sessionDir: dir}, failReader{t}},
+		{"real without session dir", opts{real: true, authorized: true}, failReader{t}},
+		{"real and fake together", opts{real: true, fake: true, authorized: true, sessionDir: dir}, failReader{t}},
+		// Authorized but the directory does not exist: wameow.New refuses before any client exists.
+		{"real with missing session dir", opts{real: true, authorized: true, sessionDir: filepath.Join(dir, "missing"), private: `{"schema_version":1,"text":"hola"}`}, strings.NewReader(send)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := run(c.o, c.in)
+			if r.Status == contract.StatusSucceeded || r.Error == nil || r.Error.Code != contract.InvalidInput {
+				t.Fatalf("result %+v error %+v", r, r.Error)
+			}
+			schematest.Validate(t, "whatsapp.result.v1", r)
+			if left, _ := os.ReadDir(dir); len(left) != 0 {
+				t.Fatalf("refused run created files: %v", left)
 			}
 		})
 	}

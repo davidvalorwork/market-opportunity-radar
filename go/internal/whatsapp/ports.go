@@ -1,5 +1,5 @@
-// Package whatsapp runs pair/sync/send jobs over ports. The real whatsmeow
-// client and the DynamoDB/S3 stores are pending; fakes live in fake.go.
+// Package whatsapp runs pair/sync/send jobs over ports. The whatsmeow client lives
+// in wameow; DynamoDB/S3 stores are pending; fakes live in fake.go.
 package whatsapp
 
 import (
@@ -20,7 +20,7 @@ var (
 	ErrNotFound       = errors.New("not_found")
 )
 
-// Client is what the future whatsmeow adapter must provide.
+// Client is implemented by wameow.Client (whatsmeow) and FakeClient.
 type Client interface {
 	Connect(ctx context.Context) error
 	// PairPhone must run right after Connect: the login websocket closes after ~160 s.

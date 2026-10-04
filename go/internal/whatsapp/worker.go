@@ -139,7 +139,7 @@ func (w *Worker) save(ctx context.Context, env contract.Envelope) (int, error) {
 }
 
 // jidUser extracts the phone digits from "user[.agent][:device]@server".
-// ponytail: string parsing; the whatsmeow adapter should compare types.JID.User directly.
+// wameow already returns types.JID.User (no "@"), which passes through unchanged; parsing covers fakes.
 func jidUser(jid string) string {
 	u, _, _ := strings.Cut(jid, "@")
 	u, _, _ = strings.Cut(u, ":")
