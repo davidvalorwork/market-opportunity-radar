@@ -1,8 +1,10 @@
 # Contratos JSON v1
 
-Estado: **contratos y validadores; ningún worker, cola ni adaptador Python los usa
-todavía**. El módulo Go `go/internal/contract` aún tiene diferencias listadas en
-el informe de B1 (pendientes de su propia tarea).
+Estado: **contratos y validadores en uso por el webhook de Telegram
+(`src/radar/adapters/telegram`) y por el módulo Go (`go/internal/contract`,
+alineado en B3b con pruebas de ejemplos dorados y de conformidad de
+resultados)**. Ninguna cola ni adaptador AWS real los usa todavía. Las reglas
+que Go no aplica a propósito están en [go/README.md](../go/README.md).
 
 Estos JSON Schema (draft 2020-12) son el contrato compartido entre el agente A
 (Codex) y el agente B (Claude): Python decide, Node y Go ejecutan, y los tres
