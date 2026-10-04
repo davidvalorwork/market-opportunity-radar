@@ -65,10 +65,12 @@ type Client struct {
 
 	ready, connected, paired, offline, dead latch
 
-	mu         sync.Mutex
-	fatal      error
-	pairedUser string
-	closeOnce  sync.Once
+	mu            sync.Mutex
+	fatal         error
+	pairedUser    string
+	closeOnce     sync.Once
+	captureFilter bool
+	enabledChats  map[string]bool
 }
 
 // latch is a one-shot broadcast: set closes ch once.
@@ -174,13 +176,14 @@ func (c *Client) handle(evt any) {
 	case *events.OfflineSyncCompleted:
 		c.offline.set()
 	case *events.Message:
-		chat, text, at, ok := extract(e)
-		if !ok {
-			return
-		}
-		// Stored before handle returns: with SynchronousAck, WhatsApp gets the ack only after this.
-		if err := c.store(context.Background(), chat, text, at); err != nil {
-			return // dropped; ponytail: count drops if real runs show any
+		// Provider IDs remain private in a local journal; public Message is unchanged.
+		if err := c.capture(context.Background(), e); err != nil {
+			c.mu.Lock()
+			strict := c.captureFilter
+			c.mu.Unlock()
+			if strict {
+				c.fail(errors.New("message_capture_failed"))
+			}
 		}
 	}
 	// events.HistorySync never arrives (ManualHistorySyncDownload) and would be ignored anyway.
