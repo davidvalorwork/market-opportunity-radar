@@ -84,14 +84,31 @@ Git).
   mientras haya webhook, `getUpdates` no funciona
   ([Bot API](https://core.telegram.org/bots/api#setwebhook)). Si el radar
   registra su webhook con este token, **inventarioIA deja de recibir mensajes**.
-  Hoy no hay conflicto porque el radar no está desplegado. Antes del primer
-  despliegue (F10) el usuario debe elegir:
+  Hoy no hay conflicto porque el radar no está desplegado. Opciones evaluadas
+  (resuelto abajo: opción 1):
   1. El radar toma el bot e inventarioIA queda sin Telegram.
   2. Un único webhook en inventarioIA que reenvía al radar los comandos del
      radar (acopla los dos proyectos).
   3. Un bot nuevo para el radar con BotFather (gratis, minutos), con
      `RADAR_TELEGRAM_TOKEN_PARAM` apuntando a `/market-radar/telegram_token`.
      Es la opción recomendada por B; el código no cambia, solo el parámetro.
+- **Decisión del usuario (2026-10-03): opción 1.** El radar se queda con el bot;
+  inventarioIA se va a borrar y no importa que pierda Telegram. Al registrar el
+  webhook del radar (F10), el webhook actual de inventarioIA queda reemplazado.
+- **Antes de borrar inventarioIA (`inf`, requiere autorización para escribir en
+  AWS):** el radar depende de `/inventarioia/telegram_token` y
+  `/inventarioia/openrouter_api_key`. Borrar esos parámetros junto con
+  inventarioIA dejaría al radar sin bot y sin IA. Hay dos caminos:
+  - Copiar los dos valores a `/market-radar/telegram_token` y
+    `/market-radar/openrouter_api_key` de servidor a servidor, sin mostrarlos
+    (`get-parameter --with-decryption` canalizado a
+    `put-parameter --type SecureString`). Después se cambian
+    `RADAR_TELEGRAM_TOKEN_PARAM` y `RADAR_OPENROUTER_KEY_PARAM`.
+  - O conservar esos dos parámetros al borrar el resto de inventarioIA.
+
+  Borrar el stack de CloudFormation de inventarioIA no borra estos parámetros:
+  su `configurar.py` los creó fuera del stack. Hay que comprobarlo antes de
+  borrar.
 - **Lista blanca por teléfono:** Telegram no entrega el teléfono a un bot. El
   bot pide "compartir contacto" (`request_contact`) y acepta solo si
   `contact.user_id == from.id`, es decir, si la persona comparte su propio
