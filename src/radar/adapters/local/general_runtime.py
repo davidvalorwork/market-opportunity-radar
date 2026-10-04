@@ -408,7 +408,8 @@ class GeneralRuntime:
                     projection = canonical({'content_b64':b64encode(content).decode(),'contact_candidates':[],
                         'context_kind':'private_inbox','original_private_ref':pointer_doc(message.private_ref)}).encode()
                     write = self.source_sink.put(owner_ref=owner,content=projection)
-                    records.append(Record('record:a'+sha256(message.provider_message_ref.encode()).hexdigest(),owner,write.pointer,(Provenance(refs[0],1,self.clock.now()),)))
+                    identity=canonical((owner,account,chat,message.provider_message_ref)).encode()
+                    records.append(Record('record:a'+sha256(identity).hexdigest(),owner,write.pointer,(Provenance(refs[0],1,self.clock.now()),)))
                     captured_bytes+=len(private)
                 report = SourceReport('request:a'+sha256((run+step['step_id']).encode()).hexdigest(),refs[0],code,False,1,0,captured_bytes,0,tuple(records))
                 return {'reports':[report.control()]}, 'partial' if records else 'blocked', 'inbox_budget_exhausted' if code==Code.LIMIT else 'live_inbox_sync_not_connected'

@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict,replace
 from datetime import timedelta
 import json
 import os
@@ -16,7 +16,7 @@ from radar.adapters.local.private_vault import create_private_directory
 from radar.adapters.local.polling import PollingRunner
 from radar.adapters.telegram.bot_api import BotApi
 from radar.adapters.telegram.allowlist import PhoneAllowlist
-from radar.application.conversations import Incoming,IncomingPage
+from radar.application.conversations import Incoming,IncomingPage,Account
 from radar.entrypoints.general_local import main
 from radar.ports.types import BlobPointer,LedgerState
 
@@ -156,6 +156,46 @@ def test_incoming_is_data_research_then_exact_private_draft(tmp_path):
         assert inbox['bytes_received']==len(json.dumps(body).encode())
         assert assembly['store'].get(owner_ref=OWNER,operation_id=output['operation_ids'][0]).state==LedgerState.PROPOSED
         assert assembly['store'].db.execute('SELECT count(*) FROM task_router_proposals').fetchone()[0]==1
+    finally:
+        assembly['store'].close()
+
+
+def test_same_provider_id_two_accounts_never_collides_in_private_records(tmp_path):
+    assembly=build(tmp_path/'accounts.sqlite')
+    runtime=assembly['runtime']
+    try:
+        original_host=runtime.host_authority
+        runtime.host_authority=lambda owner,actor,now:replace(original_host(owner,actor,now),sessions=(('session:fixture',1),('session:second',1)))
+        assembly['store'].set_session(owner_ref=OWNER,session_ref='session:second',version=1)
+        authority=runtime.authority(OWNER,ACTOR)
+        account=Account('account:second','whatsapp','fixture','recipient:selfsecond','session:second',1,assembly['clock'].now()+timedelta(hours=1))
+        repository=runtime.conversations.repository
+        repository.register_account(authority=authority,account=account,now=assembly['clock'].now())
+        view=assembly['views']['worker:conversations']
+        identity=view.seal(owner_ref=OWNER,plaintext=json.dumps({'account_ref':'account:second','chat_ref':'chat:second','recipient_ref':'recipient:second','display':'Synthetic second','address':'synthetic second'}).encode())
+        repository.enable_chat(authority=authority,account_ref='account:second',chat_ref='chat:second',recipient_ref='recipient:second',identity_ref=identity,now=assembly['clock'].now())
+        class Inbox:
+            fixture_only=True
+            def __init__(self,chat,recipient,text):
+                self.message=Incoming(chat,recipient,'provider:same',view.seal(owner_ref=OWNER,plaintext=json.dumps({
+                    'chat_ref':chat,'recipient_ref':recipient,'provider_message_ref':'provider:same','text':text}).encode()))
+            def sync(self,**kwargs):
+                return IncomingPage((self.message,))
+        runtime.conversations.sync(authority=authority,account_ref='account:fixture',worker=Inbox('chat:fixture','recipient:fixture','FIRST'),now=assembly['clock'].now())
+        runtime.conversations.sync(authority=authority,account_ref='account:second',worker=Inbox('chat:second','recipient:second','SECOND'),now=assembly['clock'].now())
+        runtime.inbox_sources={'source:inbox':('account:fixture','chat:fixture'),'source:other':('account:second','chat:second')}
+        for ref in runtime.inbox_sources:
+            assembly['store'].allow_source(owner_ref=OWNER,source_ref=ref,authorized=True)
+        proposal=accept(assembly,request('Read two enabled accounts',steps=[
+            {'step_id':'first','operation':'read','arguments':{'source_refs':['source:inbox']}},
+            {'step_id':'second','operation':'read','depends_on':['first'],'arguments':{'source_refs':['source:other']}}]))
+        confirm(assembly,proposal)
+        runtime.pump(OWNER,ACTOR)
+        output=runtime.outputs(OWNER,runtime.status(OWNER,ACTOR)[0][0])
+        first=output['first']['reports'][0]['records'][0]
+        second=output['second']['reports'][0]['records'][0]
+        assert first['record_ref']!=second['record_ref']
+        assert first['private_ref']!=second['private_ref']
     finally:
         assembly['store'].close()
 
