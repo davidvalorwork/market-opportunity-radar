@@ -118,10 +118,18 @@ Estado observado, 2026-10-03:
   `0a8d8b2b8f310c57f7262b84b84596a58d3dca4e3357101b044411d9b08c1467`.
   Identifica archivos observados en el build, incluyendo README de `078fd06`;
   esta actualización posterior solo cambia documentación, no código de la imagen.
+- Verificación independiente del coordinador, reportada sobre la misma imagen
+  `5a0f7556...` y el mismo código `078fd06`: offline **42/42**, 24.651 s;
+  RIE **44/44**, 31.400 s, cero skips, fallos u OOM. RIE observó pico cgroup
+  566951936 bytes y CPU total 30.846648 s, agregados de la suite. Conservó
+  1024 MiB, CPU 1, 256 PIDs, red none, read-only, cap-drop ALL y guard de host
+  mínimo 5.25 GiB. Tras detener su contenedor propio quedaron únicamente los
+  cinco contenedores ajenos. No se reconstruyó ni cambió código para esta prueba.
 
 Se preservó la reserva del host en todos los cortes. 768 MiB fue un experimento
 explícito previo; el gate final sí se ejecutó a 1024 MiB. Contenedores propios
 `--rm` eliminados; los cinco contenedores ajenos no se modificaron. Claude registró
-aprobación condicionada al gate final en BOARD; el ensayo del implementador pasó,
-y la verificación independiente del coordinador e integración siguen pendientes.
+aprobación condicionada al gate final en BOARD; los ensayos del implementador y
+la verificación independiente del coordinador satisfacen esa condición sobre
+el mismo código `078fd06`. La integración sigue pendiente.
 No son métricas AWS, facturación cero ni cobertura comercial/social.
