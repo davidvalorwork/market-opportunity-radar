@@ -1,0 +1,1 @@
+{"schema_version":1,"scope":{"owner_ref":"owner:synthetic","account_ref":"account:synthetic","chat_ref":"chat:synthetic","provider_message_ref":"message:synthetic"},"claims":[{"kind":"inference","statement":"SYNTHETIC unsupported answer.","citations":[]}],"unknowns":[],"contradictions":[]}
