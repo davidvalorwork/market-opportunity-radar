@@ -137,3 +137,75 @@ func TestLocalProviderIdentityDedupeAndPrivacyBeforeInsert(t *testing.T) {
 		t.Fatal("provider scope collision", count, err)
 	}
 }
+
+func TestLocalOwnEchoRequiresAuthenticatedSelectedChat(t *testing.T) {
+	ctx := context.Background()
+	c, err := New(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	account := types.NewJID("15550000111", types.DefaultUserServer)
+	c.cli.Store.ID = &account
+	own, err := c.SelfChatRef(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := types.NewJID("15550000222", types.DefaultUserServer)
+	otherRef, err := c.chatRef(ctx, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	echo := &events.Message{Info: types.MessageInfo{MessageSource: types.MessageSource{Chat: account, IsFromMe: true}, ID: "SYNTHETIC_REAL_ECHO", Timestamp: time.Now().UTC()}, Message: &waE2E.Message{Conversation: proto.String("SYNTHETIC_OWN_TEXT")}}
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.SetEnabledChats(ctx, []string{otherRef}); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err = c.db.QueryRow(`SELECT count(*) FROM radar_pending`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("unselected/legacy own captured", count, err)
+	}
+	if err = c.SetEnabledChats(ctx, []string{own, otherRef}); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	page, _, err := pendingPage(ctx, c.db, []string{own, otherRef}, 10)
+	if err != nil || len(page) != 1 || page[0].ChatRef != own {
+		t.Fatal("authenticated own echo missing or duplicated", err)
+	}
+	if id, err := c.ProviderMessageID(ctx, page[0].Cursor); err != nil || id != "SYNTHETIC_REAL_ECHO" {
+		t.Fatal("own identity invented", err)
+	}
+	if !echo.Info.IsFromMe {
+		t.Fatal("provider event mutated")
+	}
+	echo.Info.Chat = other
+	echo.Info.ID = "SYNTHETIC_OTHER_SENT"
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.db.QueryRow(`SELECT count(*) FROM radar_pending`).Scan(&count); err != nil || count != 1 {
+		t.Fatal("other from-me captured", count, err)
+	}
+	if err = c.Ack(ctx, page[0].Cursor); err != nil {
+		t.Fatal(err)
+	}
+	echo.Info.Chat = account
+	echo.Info.ID = "SYNTHETIC_REAL_ECHO"
+	if err = c.capture(ctx, echo); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.db.QueryRow(`SELECT count(*) FROM radar_pending`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("own echo after ACK duplicated", count, err)
+	}
+}

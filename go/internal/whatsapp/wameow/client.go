@@ -7,6 +7,7 @@ import (
 	"errors"
 	"regexp"
 
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"radar.local/radar/internal/whatsapp"
 )
@@ -50,13 +51,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS radar_provider_cursor ON radar_provider_journa
 }
 
 func (c *Client) capture(ctx context.Context, e *events.Message) error {
+	c.mu.Lock()
+	configured := c.captureFilter
+	c.mu.Unlock()
+	if e != nil && e.Info.IsFromMe && configured {
+		// Explicit selected-own capture is based on an independently observed
+		// provider event, never Send's acknowledgement. Other sent chats retain
+		// the legacy ignore policy. Do not mutate the SDK's event object.
+		if c.cli.Store.ID == nil {
+			return nil
+		}
+		chat := e.Info.Chat.ToNonAD()
+		if chat.Server == types.HiddenUserServer && c.cli.Store.LIDs != nil {
+			mapped, err := c.cli.Store.LIDs.GetPNForLID(ctx, chat)
+			if err != nil || mapped.IsEmpty() {
+				return nil
+			}
+			chat = mapped.ToNonAD()
+		}
+		if chat != c.cli.Store.ID.ToNonAD() {
+			return nil
+		}
+		copy := *e
+		copy.Info.IsFromMe = false
+		e = &copy
+	}
 	chat, text, at, ok := extract(e)
 	if !ok {
 		return nil
 	}
-	c.mu.Lock()
-	configured := c.captureFilter
-	c.mu.Unlock()
 	if !configured {
 		// Preserve the legacy Worker protocol; only the new local bridge opts into
 		// strict provider identities and pre-insert private capture filtering.

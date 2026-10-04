@@ -36,6 +36,16 @@ Sólo metadatos: filtro vacío
 antes de Connect. El puente no elimina la prohibición self-contact de A10; la
 prueba a uno mismo necesita el gate separado del host.
 
+Captura opt-in de `IsFromMe`: sólo eventos del chat propio que coincide con
+Store.ID observado (o mapping LID→PN confiable del SDK), y sólo si ese chat está
+explícitamente habilitado. Send propio instala esa allowlist antes de Connect;
+Sync usa su selección explícita. No captura enviados a otros chats ni cambia
+extract del Worker legado. Cada eco conserva ID real y dedupe. Nunca se fabrica
+una fila incoming desde SendResponse/ACK. Si el proveedor no emite eco o éste
+llega después de desconectar, `/leer` sólo ofrece eventos realmente capturados;
+no garantiza recuperar historial ni confirmar lectura por el envío. Eso requiere
+evidencia real separada del piloto, no un fixture.
+
 `sync(authority, account_ref, event_ref, enabled_chat_refs=tuple, limit=20,
 ack_ref=None)` instala la allowlist confiable antes de Connect. Resultado privado:
 owner/account/session/version, `messages`, `has_more`, `cursor` (último cursor

@@ -285,6 +285,23 @@ func run(ctx context.Context, client whatsapp.Client, r request, c *channel, db 
 		if err != sql.ErrNoRows {
 			return nil, err
 		}
+		selfClient, ok := client.(interface {
+			SelfChatRef(context.Context) (string, error)
+		})
+		if !ok {
+			return nil, errors.New("session_identity_unavailable")
+		}
+		self, err := selfClient.SelfChatRef(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if body.Chat == self {
+			// Capture only real provider echoes of this explicitly approved own
+			// chat, installed before Connect. Send's response is never an inbox row.
+			if err = filter.SetEnabledChats(ctx, []string{self}); err != nil {
+				return nil, err
+			}
+		}
 		known, err := client.HasChat(ctx, body.Chat)
 		if err != nil || !known {
 			return nil, errors.New("unknown_chat")
