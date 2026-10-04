@@ -3,11 +3,15 @@ package whatsapp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
+	"filippo.io/age"
+
 	"radar.local/radar/internal/contract"
+	"radar.local/radar/internal/vault"
 )
 
 // PairWindow stays under the ~160 s login websocket lifetime (B-F021).
@@ -21,17 +25,24 @@ type Worker struct {
 	Notifier Notifier
 	Owner    string // unique per worker invocation
 	LeaseTTL time.Duration
+
+	Blobs    BlobStore
+	Identity *age.X25519Identity // decrypts private payloads whose recipient_scope is Scope
+	Scope    string              // e.g. "worker:whatsapp"
+	// Synced messages are sealed to ResultRecipients and referenced with ResultScope.
+	ResultRecipients []*age.X25519Recipient
+	ResultScope      string
 }
 
-// Handle runs one decoded job. It never logs: payloads hold phones, codes and message text.
+// Handle runs one decoded job. It never logs: private payloads hold phones, codes and message text.
 func (w *Worker) Handle(ctx context.Context, env contract.Envelope, payload any) contract.Result {
 	var r contract.Result
 	var err error
-	if !time.Now().Before(env.Deadline) {
+	if !time.Now().Before(env.Deadline.Time) {
 		err = contract.Fail(contract.Timeout, "deadline expired before start")
 	} else {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, env.Deadline)
+		ctx, cancel = context.WithDeadline(ctx, env.Deadline.Time)
 		defer cancel()
 		switch p := payload.(type) {
 		case *contract.Pair:
@@ -44,7 +55,7 @@ func (w *Worker) Handle(ctx context.Context, env contract.Envelope, payload any)
 			err = contract.Fail(contract.Unsupported, "unknown kind")
 		}
 	}
-	r.Status = contract.StatusSucceeded
+	r.SchemaVersion, r.Status = contract.SchemaVersion, contract.StatusSucceeded
 	if err != nil {
 		r.Status, r.Error = contract.StatusFailed, toError(err)
 	}
@@ -76,6 +87,49 @@ func (w *Worker) lease(ctx context.Context, ref string) (int64, func(), error) {
 	return tok, func() { w.Leases.Release(context.WithoutCancel(ctx), ref, w.Owner, tok) }, nil
 }
 
+// open fetches a private_ref blob, checks scope and ciphertext sha256, and decrypts it in memory.
+func (w *Worker) open(ctx context.Context, ref contract.PrivateRef) ([]byte, error) {
+	if ref.RecipientScope != w.Scope {
+		return nil, contract.Fail(contract.InvalidInput, "private_ref scope not accepted by this worker")
+	}
+	ct, err := w.Blobs.Get(ctx, ref.BlobKey)
+	if errors.Is(err, ErrNotFound) {
+		return nil, contract.Fail(contract.InvalidInput, "private blob not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	plain, err := vault.OpenPrivate(ct, ref.SHA256, w.Identity)
+	if err != nil {
+		return nil, contract.Fail(contract.InvalidInput, "private blob rejected: "+err.Error()) // constant vault code
+	}
+	return plain, nil
+}
+
+// seal stores the kept messages as a whatsapp.messages.private.v1 blob. The key is
+// content-addressed, so a redelivered job never overwrites a blob another result points to.
+func (w *Worker) seal(ctx context.Context, env contract.Envelope, msgs []contract.Message) (*contract.PrivateRef, error) {
+	plain, err := json.Marshal(contract.MessagesPrivate{SchemaVersion: contract.SchemaVersion, Messages: msgs})
+	if err != nil {
+		return nil, err
+	}
+	// Re-check with the consumer's decoder: what we write is exactly what the reader accepts.
+	if _, err := contract.DecodeMessagesPrivate(plain); err != nil {
+		// ponytail: no paging in contracts v1 (no next cursor); add it before real chats exceed 100 messages or 32 KiB.
+		return nil, contract.Fail(contract.BudgetExhausted, "synced messages exceed private payload limits")
+	}
+	ct, sum, err := vault.SealPrivate(plain, w.ResultRecipients...)
+	if err != nil {
+		return nil, contract.Fail(contract.Internal, "private blob encryption failed")
+	}
+	_, alias, _ := strings.Cut(env.SessionRef, ":")
+	ref := &contract.PrivateRef{BlobKey: "private/whatsapp/" + alias + "/sync-" + sum + ".age", SHA256: sum, RecipientScope: w.ResultScope}
+	if err := w.Blobs.Put(ctx, ref.BlobKey, ct); err != nil {
+		return nil, err
+	}
+	return ref, nil
+}
+
 func (w *Worker) save(ctx context.Context, env contract.Envelope) (int, error) {
 	var buf bytes.Buffer
 	if err := w.Client.Snapshot(&buf); err != nil {
@@ -98,6 +152,15 @@ func (w *Worker) pair(ctx context.Context, env contract.Envelope, p *contract.Pa
 	if p.Method != "code" {
 		return r, contract.Fail(contract.Unsupported, "only the pairing code method is supported")
 	}
+	plain, err := w.open(ctx, p.PrivateRef)
+	if err != nil {
+		return r, err
+	}
+	priv, err := contract.DecodePairPrivate(plain)
+	if err != nil {
+		return r, err
+	}
+	phone := priv.DeclaredPhone
 	_, release, err := w.lease(ctx, env.SessionRef)
 	if err != nil {
 		return r, err
@@ -109,7 +172,7 @@ func (w *Worker) pair(ctx context.Context, env contract.Envelope, p *contract.Pa
 	if err := w.Client.Connect(ctx); err != nil {
 		return r, err
 	}
-	code, err := w.Client.PairPhone(ctx, p.DeclaredPhone)
+	code, err := w.Client.PairPhone(ctx, phone)
 	if err != nil {
 		return r, err
 	}
@@ -121,7 +184,7 @@ func (w *Worker) pair(ctx context.Context, env contract.Envelope, p *contract.Pa
 	if err != nil {
 		return r, err
 	}
-	if jidUser(jid) != strings.TrimPrefix(p.DeclaredPhone, "+") {
+	if jidUser(jid) != strings.TrimPrefix(phone, "+") {
 		lctx, lcancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer lcancel()
 		if w.Client.Logout(lctx) != nil {
@@ -155,12 +218,20 @@ func (w *Worker) sync(ctx context.Context, env contract.Envelope, p *contract.Sy
 	for _, c := range p.EnabledChatRefs {
 		enabled[c] = true
 	}
+	var kept []contract.Message
 	for _, m := range msgs {
 		if enabled[m.ChatRef] { // others are dropped in memory, never logged
-			r.Messages = append(r.Messages, m)
+			kept = append(kept, m)
 		}
 	}
-	// Messages stay in the result even if the snapshot save fails, so they are not lost.
+	if len(kept) > 0 {
+		// Sealed before the snapshot: if storing fails the session is not advanced past them.
+		if r.PrivateRef, err = w.seal(ctx, env, kept); err != nil {
+			return r, err
+		}
+		r.MessageCount = len(kept)
+	}
+	// The private_ref stays in the result even if the snapshot save fails, so messages are not lost.
 	r.SessionVersion, err = w.save(ctx, env)
 	return r, err
 }
@@ -183,6 +254,17 @@ func (w *Worker) send(ctx context.Context, env contract.Envelope, p *contract.Se
 	if rec.OwnerRef != env.OwnerRef || rec.RecipientRef != p.RecipientRef || rec.ApprovalRef != p.ApprovalRef || rec.ContentSHA256 != p.ContentSHA256 {
 		return r, contract.Fail(contract.InvalidInput, "approval does not match operation")
 	}
+	plain, err := w.open(ctx, p.PrivateRef)
+	if err != nil {
+		return r, err
+	}
+	priv, err := contract.DecodeSendPrivate(plain)
+	if err != nil {
+		return r, err
+	}
+	if contract.SHA256Hex(priv.Text) != p.ContentSHA256 {
+		return r, contract.Fail(contract.InvalidInput, "content hash mismatch")
+	}
 	tok, release, err := w.lease(ctx, env.SessionRef)
 	if err != nil {
 		return r, err
@@ -204,7 +286,7 @@ func (w *Worker) send(ctx context.Context, env contract.Envelope, p *contract.Se
 	if w.Leases.Check(ctx, env.SessionRef, w.Owner, tok) != nil {
 		return r, w.uncertain(ctx, op, "lease lost after claim; not dispatched by this attempt")
 	}
-	id, err := w.Client.Send(ctx, p.RecipientRef, p.Text)
+	id, err := w.Client.Send(ctx, p.RecipientRef, priv.Text)
 	if err != nil {
 		return r, w.uncertain(ctx, op, "send outcome unknown")
 	}

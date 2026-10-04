@@ -193,6 +193,36 @@ func (m *MemSessions) Save(_ context.Context, ref string, expected int, _ []byte
 	return expected + 1, nil
 }
 
+// MemBlobs is an in-memory BlobStore. Tests may edit Blobs directly to tamper with a blob.
+type MemBlobs struct {
+	mu     sync.Mutex
+	Blobs  map[string][]byte
+	PutErr error
+}
+
+func (m *MemBlobs) Put(_ context.Context, key string, ct []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.PutErr != nil {
+		return m.PutErr
+	}
+	if m.Blobs == nil {
+		m.Blobs = map[string][]byte{}
+	}
+	m.Blobs[key] = append([]byte(nil), ct...)
+	return nil
+}
+
+func (m *MemBlobs) Get(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ct, ok := m.Blobs[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return append([]byte(nil), ct...), nil
+}
+
 // FakeNotifier records delivered codes in memory (tests only inspect them).
 type FakeNotifier struct {
 	Codes []string
