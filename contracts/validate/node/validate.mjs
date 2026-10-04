@@ -7,11 +7,12 @@ import addFormats from 'ajv-formats';
 
 const MAX_BYTES = 32768;
 const contracts = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const schemas = join(contracts, '..', 'src', 'radar', 'schemas'); // single source, also shipped in the Python wheel
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
 addFormats(ajv, ['date', 'date-time']);
-const names = readdirSync(contracts).filter(name => /\.v\d+\.json$/.test(name)).map(name => name.slice(0, -5)).sort();
-for (const name of names) ajv.addSchema(readJson(join(contracts, `${name}.json`)));
+const names = readdirSync(schemas).filter(name => /\.v\d+\.json$/.test(name)).map(name => name.slice(0, -5)).sort();
+for (const name of names) ajv.addSchema(readJson(join(schemas, `${name}.json`)));
 
 function check(name, instance) {
   const size = Buffer.byteLength(JSON.stringify(instance), 'utf8');

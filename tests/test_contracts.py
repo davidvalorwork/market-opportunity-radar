@@ -8,7 +8,8 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+if importlib.util.find_spec("radar") is None:  # plain checkout; an installed radar wins
+    sys.path.insert(0, str(ROOT / "src"))
 if any(importlib.util.find_spec(name) is None for name in ("jsonschema", "hypothesis")):
     raise unittest.SkipTest("install '.[test]' (requirements.lock) to run contract tests")
 
@@ -18,7 +19,8 @@ from jsonschema import Draft202012Validator, ValidationError  # noqa: E402
 from radar import contracts  # noqa: E402
 
 EXAMPLES = ROOT / "contracts" / "examples"
-SCHEMAS = sorted(path.stem for path in (ROOT / "contracts").glob("*.v1.json"))
+SCHEMAS = contracts.schema_names()
+PRIVATE_FIELDS = {"declared_phone", "text", "messages"}
 
 
 def examples(group, schema):
@@ -34,6 +36,19 @@ class ContractTests(unittest.TestCase):
             if name != "common.v1":
                 self.assertIs(schema["additionalProperties"], False, name)
                 self.assertEqual(schema["properties"]["schema_version"], {"$ref": "common.v1.json#/$defs/schema_version"})
+
+    def test_transport_schemas_declare_no_private_fields(self):
+        def keys(node):
+            if isinstance(node, dict):
+                yield from node.get("properties", {})
+                for value in node.values():
+                    yield from keys(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from keys(value)
+        for name in SCHEMAS:
+            if ".private." not in name:
+                self.assertFalse(PRIVATE_FIELDS & set(keys(contracts.load_schema(name))), name)
 
     def test_every_schema_has_golden_examples(self):
         for name in SCHEMAS:

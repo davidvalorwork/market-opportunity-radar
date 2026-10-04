@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.pair.v1.json",
+  "title": "Payload whatsapp.pair v1 (transporte)",
+  "description": "Vincula un dispositivo propio (no clona el bridge personal). El teléfono declarado viaja solo en whatsapp.pair.private.v1, cifrado y referenciado por private_ref. El código de vinculación nunca viaja en contratos, resultados ni logs: se entrega por notify fuera de la cola.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "notify", "method", "private_ref"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "notify": {"$ref": "common.v1.json#/$defs/opaque_ref", "description": "Chat Telegram (referencia opaca) que recibe el código."},
+    "method": {"enum": ["code"], "description": "Solo código por ahora; qr queda pendiente (requiere nueva versión del contrato)."},
+    "private_ref": {"$ref": "common.v1.json#/$defs/private_ref", "description": "Blob cifrado con whatsapp.pair.private.v1."}
+  }
+}

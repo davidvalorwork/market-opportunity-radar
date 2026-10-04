@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
-  "declared_phone": "+10000000000",
   "notify": "+10000000000",
-  "method": "code"
+  "method": "code",
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/pair-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+    "sha256": "24aba61907bc1659f24107833c96b30c43db5c8d3210a9285da65421a3f39cbc",
+    "recipient_scope": "worker:whatsapp"
+  }
 }

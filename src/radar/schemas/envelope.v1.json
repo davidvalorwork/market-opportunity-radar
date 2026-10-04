@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://market-opportunity-radar.invalid/contracts/envelope.v1.json",
   "title": "Sobre común v1",
-  "description": "Sobre de todas las colas. NO transporta lease: el worker lo adquiere por condición en el almacén de control; un token viejo en el mensaje no otorga autoridad. Tamaño serializado máximo 32768 bytes (lo comprueban los validadores, no JSON Schema).",
+  "description": "Sobre de todas las colas. NO transporta lease: el worker lo adquiere por condición en el almacén de control; un token viejo en el mensaje no otorga autoridad. Ningún dato personal ni contenido privado en claro: van en payloads *.private.v1 cifrados y referenciados por private_ref. Tamaño serializado máximo 32768 bytes (lo comprueban los validadores, no JSON Schema).",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "message_id", "operation_id", "correlation_id", "causation_id",
+    "schema_version", "message_id", "operation_id", "correlation_id",
     "owner_ref", "kind", "deadline", "attempt", "payload"
   ],
   "properties": {
@@ -14,10 +14,7 @@
     "message_id": {"$ref": "common.v1.json#/$defs/id", "description": "Único por mensaje; clave de deduplicación de transporte."},
     "operation_id": {"$ref": "common.v1.json#/$defs/id", "description": "Operación de negocio; varios mensajes pueden compartirla."},
     "correlation_id": {"$ref": "common.v1.json#/$defs/id", "description": "Run o conversación que agrupa operaciones."},
-    "causation_id": {
-      "description": "message_id que causó este mensaje; null en el primero de la cadena.",
-      "anyOf": [{"$ref": "common.v1.json#/$defs/id"}, {"type": "null"}]
-    },
+    "causation_id": {"$ref": "common.v1.json#/$defs/id", "description": "message_id que causó este mensaje; se omite (no null ni vacío) en el primero de la cadena."},
     "owner_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
     "kind": {
       "enum": [
@@ -28,9 +25,9 @@
     "deadline": {"$ref": "common.v1.json#/$defs/utc_datetime"},
     "attempt": {"type": "integer", "minimum": 1},
     "session_ref": {"$ref": "common.v1.json#/$defs/session_ref"},
-    "expected_version": {"type": "integer", "minimum": 0},
+    "expected_version": {"type": "integer", "minimum": 0, "description": "Versión de sesión esperada (CAS). whatsapp.pair exige 0; sync/send exigen >= 1."},
     "refs": {
-      "description": "Blobs inmutables referenciados con hash; payload privado va por referencia cifrada.",
+      "description": "Blobs inmutables adicionales referenciados con hash.",
       "type": "array",
       "maxItems": 16,
       "items": {
@@ -38,11 +35,7 @@
         "additionalProperties": false,
         "required": ["blob_key", "sha256"],
         "properties": {
-          "blob_key": {
-            "type": "string",
-            "maxLength": 256,
-            "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*(/[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*)*$"
-          },
+          "blob_key": {"$ref": "common.v1.json#/$defs/blob_key"},
           "sha256": {"$ref": "common.v1.json#/$defs/sha256"}
         }
       }
@@ -50,12 +43,11 @@
     "payload": {"type": "object"}
   },
   "allOf": [
-    {"if": {"properties": {"kind": {"enum": ["whatsapp.pair", "whatsapp.sync", "whatsapp.send"]}}}, "then": {"required": ["session_ref"]}},
+    {"if": {"properties": {"kind": {"const": "whatsapp.pair"}}}, "then": {"required": ["session_ref", "expected_version"], "properties": {"expected_version": {"const": 0}, "payload": {"$ref": "whatsapp.pair.v1.json"}}}},
+    {"if": {"properties": {"kind": {"const": "whatsapp.sync"}}}, "then": {"required": ["session_ref", "expected_version"], "properties": {"expected_version": {"minimum": 1}, "payload": {"$ref": "whatsapp.sync.v1.json"}}}},
+    {"if": {"properties": {"kind": {"const": "whatsapp.send"}}}, "then": {"required": ["session_ref", "expected_version"], "properties": {"expected_version": {"minimum": 1}, "payload": {"$ref": "whatsapp.send.v1.json"}}}},
     {"if": {"properties": {"kind": {"const": "browser.read"}}}, "then": {"properties": {"payload": {"$ref": "browser.read.v1.json"}}}},
     {"if": {"properties": {"kind": {"const": "browser.result"}}}, "then": {"properties": {"payload": {"$ref": "browser.result.v1.json"}}}},
-    {"if": {"properties": {"kind": {"const": "whatsapp.pair"}}}, "then": {"properties": {"payload": {"$ref": "whatsapp.pair.v1.json"}}}},
-    {"if": {"properties": {"kind": {"const": "whatsapp.sync"}}}, "then": {"properties": {"payload": {"$ref": "whatsapp.sync.v1.json"}}}},
-    {"if": {"properties": {"kind": {"const": "whatsapp.send"}}}, "then": {"properties": {"payload": {"$ref": "whatsapp.send.v1.json"}}}},
     {"if": {"properties": {"kind": {"const": "whatsapp.result"}}}, "then": {"properties": {"payload": {"$ref": "whatsapp.result.v1.json"}}}},
     {"if": {"properties": {"kind": {"const": "telegram.command"}}}, "then": {"properties": {"payload": {"$ref": "telegram.command.v1.json"}}}}
   ]

@@ -11,9 +11,27 @@
       "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
     },
     "opaque_ref": {
-      "description": "Referencia seudónima 'espacio:valor'. Nunca teléfono, usuario, token ni secreto en claro; se resuelve server-side.",
+      "description": "Referencia seudónima 'espacio:valor'; el valor exige al menos una letra, así un número de teléfono o ID numérico crudo no pasa. Nunca teléfono, usuario, token ni secreto en claro; se resuelve server-side.",
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,31}:[A-Za-z0-9_-]{1,96}$"
+      "maxLength": 129,
+      "pattern": "^[a-z][a-z0-9_]{0,31}:[A-Za-z0-9_-]*[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "blob_key": {
+      "description": "Clave relativa de blob inmutable; sin '..', '/' inicial ni segmentos vacíos.",
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*(/[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*)*$"
+    },
+    "private_ref": {
+      "description": "Puntero a un payload privado cifrado con age y guardado como blob. sha256 es del blob cifrado (integridad del transporte), no del texto. recipient_scope nombra el conjunto de destinatarios age autorizado a descifrar (ej. worker:whatsapp); nunca una clave.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blob_key", "sha256", "recipient_scope"],
+      "properties": {
+        "blob_key": {"$ref": "#/$defs/blob_key"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "recipient_scope": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}:[a-z][a-z0-9_-]{0,63}$"}
+      }
     },
     "session_ref": {
       "description": "Alias de sesión 'plataforma:alias' (ej. whatsapp:radar-pilot). Es un nombre, nunca un secreto ni una ruta.",
@@ -56,8 +74,8 @@
       }
     },
     "status": {
-      "description": "succeeded: completo; partial: incompleto pero útil; failed: sin efecto/resultado; uncertain: efecto externo sin prueba durable (no reintentar a ciegas).",
-      "enum": ["succeeded", "partial", "failed", "uncertain"]
+      "description": "succeeded: completo; partial: incompleto pero útil (solo lecturas); failed: con error tipado. Un envío sin prueba durable es failed + send_uncertain: reconciliar, no reintentar a ciegas.",
+      "enum": ["succeeded", "partial", "failed"]
     },
     "money": {
       "description": "Importe decimal como string (nunca float) y moneda ISO 4217.",

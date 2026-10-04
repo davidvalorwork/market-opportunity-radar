@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.send.v1.json",
+  "title": "Payload whatsapp.send v1 (transporte)",
+  "description": "Envío aprobado. El texto viaja solo en whatsapp.send.private.v1, cifrado y referenciado por private_ref. La aprobación liga propietario, destinatario, cuenta, content_sha256, propósito, versión y vencimiento; tras descifrar, el worker verifica content_sha256 = sha256(UTF-8 del texto) y el ledger antes del efecto.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "recipient_ref", "approval_ref", "content_sha256", "private_ref"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "recipient_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+    "approval_ref": {"$ref": "common.v1.json#/$defs/opaque_ref"},
+    "content_sha256": {"$ref": "common.v1.json#/$defs/sha256", "description": "sha256 del texto en claro (lo liga la aprobación)."},
+    "private_ref": {"$ref": "common.v1.json#/$defs/private_ref", "description": "Blob cifrado con whatsapp.send.private.v1."}
+  }
+}

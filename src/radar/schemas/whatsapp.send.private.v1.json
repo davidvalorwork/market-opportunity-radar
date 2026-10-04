@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://market-opportunity-radar.invalid/contracts/whatsapp.send.private.v1.json",
+  "title": "Payload privado whatsapp.send v1",
+  "description": "PRIVADO: se valida solo tras descifrar el blob de private_ref; sha256(UTF-8 de text) debe igualar content_sha256 del transporte. Nunca en logs, colas, DynamoDB, telemetría ni LLM en claro.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "text"],
+  "properties": {
+    "schema_version": {"$ref": "common.v1.json#/$defs/schema_version"},
+    "text": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

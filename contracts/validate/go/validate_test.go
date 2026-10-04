@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	maxBytes = 32768
-	baseID   = "https://market-opportunity-radar.invalid/contracts/"
-	root     = "../.."
+	maxBytes  = 32768
+	baseID    = "https://market-opportunity-radar.invalid/contracts/"
+	root      = "../.."
+	schemaDir = "../../../src/radar/schemas" // single source, also shipped in the Python wheel
 )
 
 func readJSON(t *testing.T, path string) any {
@@ -57,7 +58,7 @@ func check(schema *jsonschema.Schema, instance any) error {
 }
 
 func TestGoldenExamples(t *testing.T) {
-	paths, _ := filepath.Glob(filepath.Join(root, "*.json"))
+	paths, _ := filepath.Glob(filepath.Join(schemaDir, "*.json"))
 	versioned := regexp.MustCompile(`\.v\d+\.json$`)
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)

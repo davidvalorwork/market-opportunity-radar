@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "message_count": 1,
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/sync-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+    "sha256": "e97dc7b718d35168499c5ed64207b5e075e8018bec578ee13e3633a91638966d",
+    "recipient_scope": "worker:whatsapp"
+  },
+  "session_version": 5,
+  "messages": [
+    {
+      "chat_ref": "wachat:synthetic-seller-1",
+      "text": "Sí, disponible.",
+      "observed_at": "2026-10-03T12:00:00Z"
+    }
+  ]
+}

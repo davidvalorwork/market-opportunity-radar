@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "recipient_ref": "wacontact:synthetic-seller-1",
+  "approval_ref": "approval:01J9ZX3Q4R5S6T7V8W9XAYBZC2",
+  "content_sha256": "e2f74ffcb71c2e485011ee2ad62c83b2cef4144b4cb4f34b151ea648176439c4",
+  "private_ref": {
+    "blob_key": "private/../keys/worker.agekey",
+    "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+    "recipient_scope": "worker:whatsapp"
+  }
+}

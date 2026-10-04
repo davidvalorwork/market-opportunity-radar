@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "notify": "tgchat:radar-pilot-backup",
+  "method": "code",
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/pair-01J9ZX3Q4R5S6T7V8W9XAYBZC3.age",
+    "sha256": "34779f171bc56ecca13373148e84078b52459c25dd24ab2068096e7161870769",
+    "recipient_scope": "worker:whatsapp"
+  }
+}

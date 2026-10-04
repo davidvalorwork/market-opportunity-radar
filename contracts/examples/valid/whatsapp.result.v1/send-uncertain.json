@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "uncertain",
+  "status": "failed",
   "error": {
     "code": "send_uncertain",
     "message": "worker stopped after claim without durable provider ack"

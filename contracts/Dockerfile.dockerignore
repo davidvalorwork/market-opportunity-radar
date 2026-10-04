@@ -1,13 +1,17 @@
-# Dockerfile-specific allowlist: only contracts, the Python skeleton and its test.
+# Dockerfile-specific allowlist: only contracts, the Python package and its contract test.
 **
 !contracts/
 !contracts/**
 !src/
 !src/radar/
 !src/radar/*.py
+!src/radar/schemas/
+!src/radar/schemas/*.json
 !tests/
 !tests/test_contracts.py
 !pyproject.toml
 !requirements.lock
+!LICENSE
+!NOTICE
 contracts/**/node_modules/
 contracts/**/.env*

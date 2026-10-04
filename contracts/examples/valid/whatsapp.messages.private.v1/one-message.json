@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "messages": [
+    {
+      "chat_ref": "wachat:synthetic-seller-1",
+      "text": "Sí, disponible.",
+      "observed_at": "2026-10-03T12:00:00Z"
+    }
+  ]
+}

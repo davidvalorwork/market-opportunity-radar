@@ -3,5 +3,9 @@
   "recipient_ref": "wacontact:synthetic-seller-1",
   "approval_ref": "approval:01J9ZX3Q4R5S6T7V8W9XAYBZC2",
   "content_sha256": "E2F74FFCB71C2E485011EE2AD62C83B2CEF4144B4CB4F34B151EA648176439C4",
-  "text": "Hola, ¿sigue disponible el perfume sintético de 100 ml?"
+  "private_ref": {
+    "blob_key": "private/whatsapp/radar-pilot/send-01J9ZX3Q4R5S6T7V8W9XAYBZC1.age",
+    "sha256": "e10c73f1827f06e8e013c52c945d23fcb034730fde6372475933756e96617972",
+    "recipient_scope": "worker:whatsapp"
+  }
 }
