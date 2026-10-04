@@ -22,8 +22,9 @@ repositorio, al chat ni a logs.
 | Secreto | Ubicación | Lo lee | Estado |
 |---|---|---|---|
 | Clave de OpenRouter | **Reutilizada de inventarioIA**: `/inventarioia/openrouter_api_key` (`SecureString`, versión 1, `us-east-1`; metadatos verificados el 2026-10-03 sin descifrar) | Función `app` (puerto LLM, tarea B6) | Configurable con `RADAR_OPENROUTER_KEY_PARAM` |
-| Token del bot de Telegram | Propio del radar: `/market-radar/telegram_token` | `bot`, `app` (envíos) | Por crear con un bot nuevo |
-| Secreto del webhook de Telegram | `/market-radar/telegram_webhook_secret` | `bot` | Por generar (`secrets.token_urlsafe(32)`, caracteres válidos para `secret_token`) |
+| Token del bot de Telegram | **Reutilizado de inventarioIA por pedido del usuario** (2026-10-03): `/inventarioia/telegram_token` (`SecureString`, versión 1, `us-east-1`, metadatos verificados) | `bot`, `app` (envíos) | Configurable con `RADAR_TELEGRAM_TOKEN_PARAM`; ver conflicto de webhook abajo |
+| Secreto del webhook de Telegram | Propio del radar: `/market-radar/telegram_webhook_secret` (inventarioIA tiene el suyo en `/inventarioia/telegram_webhook_secret`) | `bot` | Se genera al registrar el webhook del radar (`secrets.token_urlsafe(32)`) |
+| Lista blanca por teléfono | Local: `.local/allowlist.json` (ignorado por Git). AWS futuro: `/market-radar/allowlist_phones` (`SecureString`) | `bot` (solo para comparar al compartir contacto) | Creada en local con **un único número, rol dueño**; el número no aparece en el repositorio |
 | Identidad age del worker WhatsApp | `/market-radar/age/worker-whatsapp` | `whatsapp` | Por generar con `sessions keygen` |
 | Identidad age del worker navegador | `/market-radar/age/worker-browser` | `browser` (vía helper Go) | Por generar |
 | Credenciales AWS de desarrollo | Perfil local del AWS CLI del usuario | Usuario y despliegues autorizados | Existente; nunca en el repo |
@@ -73,14 +74,32 @@ defecto). Son candidatos naturales para la evaluación B-D053:
 | Audio | `google/gemini-2.5-flash-lite` |
 | Visión | `qwen/qwen3.7-flash` |
 
-### Lo que NO se reutiliza
+### Bot de Telegram reutilizado (pedido del usuario, 2026-10-03)
 
-- **Token del bot de Telegram de inventarioIA:** un bot tiene un solo webhook
-  activo; compartirlo rompería uno de los dos productos. El radar necesita su
-  propio bot.
-- **Secreto del webhook y lista de chats permitidos de inventarioIA:** son de
-  otro producto y de otras personas; el radar mantiene su propia lista blanca
-  (B-D039).
+El usuario pidió reutilizar el bot de inventarioIA y autorizar por ahora
+**solo un número de teléfono** (guardado en `.local/allowlist.json`, nunca en
+Git).
+
+- **Conflicto de webhook (`doc`):** `setWebhook` define *una* URL por bot;
+  mientras haya webhook, `getUpdates` no funciona
+  ([Bot API](https://core.telegram.org/bots/api#setwebhook)). Si el radar
+  registra su webhook con este token, **inventarioIA deja de recibir mensajes**.
+  Hoy no hay conflicto porque el radar no está desplegado. Antes del primer
+  despliegue (F10) el usuario debe elegir:
+  1. El radar toma el bot e inventarioIA queda sin Telegram.
+  2. Un único webhook en inventarioIA que reenvía al radar los comandos del
+     radar (acopla los dos proyectos).
+  3. Un bot nuevo para el radar con BotFather (gratis, minutos), con
+     `RADAR_TELEGRAM_TOKEN_PARAM` apuntando a `/market-radar/telegram_token`.
+     Es la opción recomendada por B; el código no cambia, solo el parámetro.
+- **Lista blanca por teléfono:** Telegram no entrega el teléfono a un bot. El
+  bot pide "compartir contacto" (`request_contact`) y acepta solo si
+  `contact.user_id == from.id`, es decir, si la persona comparte su propio
+  contacto y no uno reenviado. Además, el número en E.164 debe estar en la
+  lista. Tras la comparación se guarda solo el `user_id` y el rol; el teléfono
+  no se persiste. Implementación: tarea B2b.
+- **No se reutilizan:** el secreto del webhook ni la lista de chats permitidos
+  de inventarioIA (otro producto y otras personas).
 
 ## Alta futura de secretos del radar
 
