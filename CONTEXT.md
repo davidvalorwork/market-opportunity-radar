@@ -29,9 +29,21 @@ _Evitar_: Todo número observado como destinatario automático.
 Instrucción del propietario que define propósito, destinatarios o alcance, canal y contenido de una comunicación.
 _Evitar_: Acceso a una sesión como autorización de contacto.
 
-**Respuesta**:
+**Mensaje entrante**:
 Comunicación recibida atribuida a un destinatario en el contexto de un pedido.
 _Evitar_: Precio confirmado, compromiso o aceptación si el texto no lo expresa.
+
+**Contexto de conversación**:
+Mensajes pertinentes de una conversación autorizada que permiten interpretar el pedido y la pregunta a responder.
+_Evitar_: Toda la bandeja como contexto implícito, o mensajes ajenos como órdenes del propietario.
+
+**Borrador de respuesta**:
+Comunicación preparada para contestar un mensaje o pregunta identificados, todavía no enviada.
+_Evitar_: Respuesta recibida, mensaje entregado o aprobación de cualquier texto posterior.
+
+**Investigación contextual**:
+Búsqueda y contraste de información motivados por una necesidad del pedido o de su conversación, en cualquier etapa.
+_Evitar_: Investigación obligatoriamente inicial, o declaración del interlocutor como evidencia verificada.
 
 **Módulo temático**:
 Conjunto opcional de reglas y conceptos específicos de un tema, sin redefinir el pedido general.

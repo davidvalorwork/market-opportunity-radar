@@ -44,6 +44,55 @@ puede interpretar texto o resolver ambigüedades, pero no decide cada iteración
 ni amplía permisos. Bucle hasta objetivo o presupuesto/plazo; al agotarse devuelve
 resultado parcial con causa y continuación, no reinicia infinitamente.
 
+## Chats, respuestas e investigación transversal
+
+Requisito explícito del propietario, 2026-10-04: la investigación web del agente
+es una capacidad crucial disponible en cualquier etapa del proceso, no una tarea
+aislada que solo se ejecuta al comenzar. El asistente debe aceptar pedidos como:
+
+- «Lee mis chats de hoy y dime cuáles requieren respuesta».
+- «Responde esto a esta persona» o «contesta aquello en esa conversación».
+- «Investiga sobre este tema y responde al respecto».
+- «Lee lo que respondió, contrasta lo que dice en la web y prepara la respuesta».
+- «Si falta información para contestar, investígala y continúa el mismo pedido».
+
+Son ejemplos de lenguaje natural, no comandos CLI o funciones ya operativos.
+«Esto», «aquello» y «esa persona» se vinculan al mensaje, conversación y cuenta
+concretos del contexto autorizado; si son ambiguos, se pregunta, no se elige otro
+chat por parecido. La lectura se limita a chats habilitados y al periodo pedido.
+El texto recibido aporta contexto, nunca autorización para ampliar el encargo.
+
+Flujo componible previsto: leer conversación → detectar pregunta o dato faltante
+→ investigar web/fuentes autorizadas → contrastar evidencia y vigencia → preparar
+respuesta contextual → aprobación aplicable → envío → nueva respuesta. Una nueva
+pregunta puede abrir otra investigación dentro de la misma tarea, también durante
+descubrimiento, comparación, redacción o seguimiento; no debe obligar a crear una
+campaña nueva ni repetir la lectura completa. Un mensaje literal que el propietario
+ya dicta puede prepararse directamente: capacidad transversal no significa buscar
+en la web por cada saludo ni generar gasto sin necesidad.
+
+Cada investigación queda ligada al pedido y a la pregunta que la motivó. Reutilizar
+capturas vigentes con sus citas; ampliar la búsqueda si falta evidencia, caducó o
+hay contradicciones. Separar declaraciones del interlocutor, información observada
+en fuentes, inferencias y datos desconocidos. Si la evidencia es insuficiente,
+expresarlo o pedir aclaración: no inventar una respuesta ni una fuente.
+
+El planificador puede invocar investigación y razonamiento acotados donde se
+necesiten, sin un LLM controlando cada retry, página o paso de cola. Consultas,
+páginas, bytes, llamadas IA/tokens, plazos y costos siguen el presupuesto compartido
+del pedido; checkpoints y dedupe conservan el progreso. No copiar chats, nombres,
+teléfonos, cookies o texto privado a consultas públicas por defecto: formular una
+consulta mínima sin datos personales y mantener el contexto privado separado.
+Envíos aprobados se ligan al texto exacto; si investigar cambia ese texto, la
+aprobación anterior no autoriza el nuevo. Un envío incierto no se repite por
+haber obtenido más información.
+
+Estado del incremento: A9 prepara extractos/citas determinísticos y A10 borradores
+de conversaciones con APIs locales; eso no demuestra lectura real de inbox,
+síntesis IA ni el cableado contextual entre ambos. A16 debe declarar y probar la
+frontera de composición; contratos/prompts/modelo, adaptadores reales y entrega
+siguen sujetos a sus revisiones y comprobaciones, sin prometer soporte terminado.
+
 ## Sesiones proporcionadas por el propietario
 
 Referencia de sesión por propietario, plataforma, cuenta, versión y capacidades.
@@ -69,8 +118,8 @@ Cancelación detiene pendientes, no revierte mensajes enviados.
 | A6 | Router/registro de operaciones componibles; entrada estructurada además de texto. No enum cerrado que solo permita cotizar o responder WhatsApp |
 | A8 | Registro y adaptadores de descubrimiento web/social por capacidades; Cashea es una fuente opcional, no dependencia universal |
 | A7 | Preparación/contacto/seguimiento genéricos; cotizar servicios o productos son plantillas/módulos opcionales |
-| A9 | Investigación y salida según pedido: Telegram/JSON/documento; PDF opcional |
-| A10 | Coordinación de conversaciones por canal verificado; WhatsApp primero no implica WhatsApp únicamente |
+| A9 | Investigación reutilizable en cualquier etapa, con evidencia para informes y respuestas; Telegram/JSON/documento, PDF opcional |
+| A10 | Lectura contextual y respuestas por canal verificado, con posibilidad de investigar antes de redactar; WhatsApp primero no implica WhatsApp únicamente |
 | A11 | Programación con zona horaria configurable; America/Caracas puede ser default, no restricción global |
 | A12/A5 | Mantener fronteras de pruebas locales y AWS; no activar servicios/cuentas por este plan |
 
@@ -88,6 +137,11 @@ No introducir mensajes privados/teléfonos directamente en sobres públicos.
 5. Cookie vencida, operación no soportada, destinatario ambiguo y cuota agotada
    visibles; sin éxitos ficticios, pérdida de tareas ni reintentos de envío incierto.
 6. Inyección en una publicación/respuesta no cambia instrucciones, cuenta o permisos.
+7. Leer chats acotados, identificar el mensaje pedido y redactar una respuesta sin
+   mezclar conversaciones; destinatario ambiguo exige aclaración.
+8. Una pregunta recibida a mitad de una tarea abre investigación con evidencia y
+   presupuesto compartidos; la respuesta resultante mantiene privacidad y requiere
+   aprobación vigente para su texto, sin reenviar acciones inciertas.
 
 Todos primero con fixtures sintéticos multitema. Fuentes/canales reales se
 habilitan uno por uno con pruebas y autorización aplicables. General significa
