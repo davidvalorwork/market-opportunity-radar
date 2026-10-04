@@ -109,6 +109,28 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   antes de la rama de longitud. Repetidos los tres casos en B y GeneralWebhook:
   **6/6** devuelven 200 sin respuesta, persistencia ni dedupe. No acredita la
   suite final de A16 ni bot real; la regresión debe quedar en su entrega.
+- A16 candidato `617d052`: coordinador **37/37** pruebas del área (27.67 s)
+  en copia independiente del commit, age/SQLite y permisos reales, sin red.
+  Se detectó después un namespace incompleto de `record_ref` del inbox;
+  follow-up y suite final siguen pendientes antes de dar esta entrega por cerrada.
+- A16 follow-up final `e7c19fa`: namespace owner/account/chat/provider corregido,
+  candidato limpio. Coordinador **38/38** (21.93 s) en nueva copia independiente;
+  CLI `--fixture` final dio webhook200/read1/IA0/red0/envíos0, estado partial
+  porque los costos de fuente eran desconocidos. El implementador reportó
+  **1013 + 246 subtests** (106.49 s) sobre SHA exacto. Root no sustituye esa
+  suite reportada por su prueba independiente de área ni activa el bot real.
+- A17 `69aeae0`: coordinador **73/73 Windows** (5.39 s) en copia independiente,
+  después **73/73 Linux** (8.19 s), cero skips/fallos. TLS/socket/certificados
+  sintéticos reales; incluye límites durante I/O, cancelación/trickle, pins
+  privados/peer y buffers, sin convertir HTTP en fuente verificada. Linux usó
+  imagen Python cacheada, 512 MiB/1 CPU, read-only/network none/cap-drop/pids128,
+  tmpfs128. Fuente y cuerpos de tests iguales al commit; sólo fixture de build
+  sustituida en copia privada por binario Go stdlib montado y hash comprobado:
+  `e0a9b3971cc23f5e1acaf3cb04dc3a983b22cc128ffed0dc4976ad0ea28bcd97`.
+  Guard 10.377 GiB libres frente a 4.625; contenedor autoeliminado, cinco ajenos
+  intactos. No acredita instalación Go en Linux/CI, DNS previo, Internet ni AWS.
+  Implementador reportó suite943 + 246 y microbenchmark151800recv→42 con
+  buffer4096; root no presenta ese reporte como benchmark independiente.
 
 ## Cierre por entrega
 
@@ -132,9 +154,10 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A11 | Programación/zonas, replay, pausa/borrado, cuotas y autorización de efectos | Candidato `ce2a4c4`: coordinador 60/60 área y combinación 819 + 246. Local durable/DST/cuotas UTC/ocurrencias/outbox comprobados; `/tareas`, calendario confirmado/factory/ejecutor y trigger operativo pendientes. EventBridge no provisionado |
 | A14 | Backend age durable compartido para los flujos privados | Candidato `edfd63a`; coordinador45/45 Windows y45/45 Linux, combinación975 + 246. age/ACL/bindings/cuotas y A6/A8/A9/A12 ensayados. Revisión, factory real, worker remoto/audiencias con claves distintas y CI remota pendientes; no habilita cuentas |
 | A15 | Calendario IANA disponible en runtime/lock Windows | Candidato `4c5e4be` cierra fallo de dependencia en venv nuevo; 6/6 calendario real y combinación975 + 246. Main/integración/revisión pendientes |
-| A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Implementación aislada en curso; no hay suite final acreditada. Privacidad ingreso, claims/replay, delivery exacta y composición contextual deben probarse. No sustituirlo por CLI fixture sola ni habilitar bot real |
-| A17 | HTTP público real conforme a A8 | Iniciado aislado; transporte real pin/TLS/peer/stream/deadline y pruebas socket/TLS pendientes. No guarda cookies ni demuestra búsqueda social/CLI/browser por implementar HTTPS |
+| A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Final e7c19fa, coordinador38/38 con age real y CLI0IA/0red/0envíos; implementador1013 + 246 suiteexacta. Namespace inbox corregido. Privacidad/claims/replay/delivery/callbacks/scheduler probados localmente; A18, control UI/extracción general/revisión/integración faltan. Inboxcache20 sin temporal/cursor; no bot real |
+| A17 | HTTP público real conforme a A8 | Candidato69aeae0, coordinador73/73 Windows y73/73 Linux. Transporte pin/TLS/peer/stream/deadline/cancel acotado verificado sintéticamente. DNS previo/capacidades/factory/fuentes reales, revisión/integración siguen pendientes; no cookies ni búsqueda social/CLI/browser |
 | A18 | Investigación contextual y respuesta general durante cualquier etapa | En desarrollo aislado; A10 contexto exacto → evidencia A8/A9 → composición privada y reasoner opcional con presupuesto. Nuevo schema candidato sujeto a B; pruebas, wiring A16 y revisión aún pendientes. Literal dictado no obliga a búsqueda ni IA; no inbox o modelo real acreditado |
+| A19 | DNS previo a HTTP bajo plazo/cancelación del pedido | Iniciado en rama aislada sobre A17, adapter host y helper stdlib sin editar A8/B. Debe probar deadline residual DNS+HTTP, cleanup y aislamiento concurrente; sigue pendiente, no conexión DNS Internet ni capacidad externa demostrada |
 | A5/F7 | DynamoDB/S3/SQS/SSM, conformidad local, outbox/reparación; experimento R1 | No implementada; depende A3. Pruebas con emuladores/moto no sustituyen AWS real |
 | F8 | SAM build/local invoke, IAM/timeout/visibilidad/concurrencia/DLQ | Pendiente; infraestructura local verificable antes de autorización para desplegar |
 | F9 | Threat model, stop/borrado/export, privacidad y revisión aplicable | Consentimiento parcial implementado. Borrado/logout/retención y revisión requerida para colaboradores no constatados |
