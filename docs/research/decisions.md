@@ -31,7 +31,7 @@ Este registro distingue límites de trabajo acordados de alternativas provisiona
 | R-024 | Aprobación reportada por B; implementación A autorizada en este chat | Adoptar arquitectura final A con refinamientos R1–R4 como dirección de trabajo local | Informe B, sección "Plan de implementación y trabajo en paralelo", registra "Sí los 3"; no se afirma verificación independiente de ese chat |
 | R-025 | Experimento aceptado, no aplicado | R1: probar consumo directo de comandos desde Streams para evitar `commands.fifo`; conservar baseline de cuatro colas hasta decidir con pruebas 0.5/1 | Medir orden por agregado, replay, fallos de shard y reparación; volver a FIFO si complica consistencia |
 | R-026 | Control propuesto, pendiente de medición | R2: concurrencia reservada, cuotas de trabajos y reservas de presupuesto limitan consumo; no son techo duro universal ni garantizan USD 0 | Budgets es alerta tardía; billing/free tier y costo de almacenamiento/red/reintentos siguen pendientes |
-| R-027 | Alcance local de implementación | R3: productos con nombres del núcleo general justificados por sus casos; otras verticales pendientes; R4: HTTP primero solo con permiso/capacidad verificados | No habilita todo sitio ni cambia reglas de SECURITY; Telegram única UI MVP reportada en B-D038 |
+| R-027 | Alcance local de implementación; redacción precisada en A0b, 2026-10-03 | R3: implementar solo productos con nombres generales del núcleo (`Entity`, `Signal`, `Opportunity`, etc.) desde el primer commit; otras verticales requieren confirmación formal del usuario, sin framework universal anticipado; R4: HTTP primero solo con permiso/capacidad verificados | Corrige la redacción A0 para reflejar R3 del plan B §1; no habilita todo sitio ni cambia reglas de SECURITY; Telegram única UI MVP reportada en B-D038 |
 | R-028 | B-Q006 respondida según informe B; fallback no implementado | Si una fuente rechaza la sesión desde AWS, permitir respaldo local en el PC autorizado; sin proxies, evasión ni login oculto | El informe B registra la respuesta; cada fuente/cuenta real y canary todavía requiere encargo separado |
 | R-029 | Encargo vigente | Iniciar tareas A en worktrees aislados y entregar commits locales para revisión | "Empieza tus codex tasks" autoriza implementación local; no nuevos merges, push, AWS o contactos |
 
@@ -50,6 +50,23 @@ implementación y trabajo en paralelo" y tabla B-D061–B-D064;
 se refleja ahora en AGENTS/ARCHITECTURE/ROADMAP; estos documentos no prueban
 componentes desplegados. El contexto previo R-003/R-022 conserva su fecha y
 alcance histórico, no bloquea las nuevas tareas locales autorizadas.
+
+## A0b — Continuidad de calidad, 2026-10-03
+
+La rama A0b parte de `9b163a5`, con B1/B3/B3b ya integradas localmente.
+La guarda documental y pytest Windows/Linux se conservan; CI añade contratos
+Node, el validador Go y el módulo Go con fixtures/fakes, sin cuentas ni AWS.
+Python instala versiones exactas de `requirements.lock` sin resolver dependencias
+adicionales y comprueba consistencia con `pip check`. El lock no contiene hashes;
+no se presenta como verificación criptográfica de todos los paquetes Python.
+
+Acciones nuevas fijadas por commit, comprobadas contra refs oficiales de
+[setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0)
+(`820762786026740c76f36085b0efc47a31fe5020`) y
+[setup-go v7.0.0](https://github.com/actions/setup-go/releases/tag/v7.0.0)
+(`b7ad1dad31e06c5925ef5d2fc7ad053ef454303e`). Node `24.15.0` satisface
+`engines >=24`; Go `1.27.1` coincide con ambos `go.mod`. Esta configuración
+no demuestra que GitHub Actions haya ejecutado ni aprobado una corrida remota.
 
 ## Cierre A — 2026-10-03
 

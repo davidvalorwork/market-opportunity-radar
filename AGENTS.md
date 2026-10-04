@@ -20,7 +20,7 @@
 - No contribuir a repos externos: el usuario excluyó ese frente.
 - Subagentes solo con autorización o instrucciones aplicables; acordar contratos y propiedad de archivos para evitar solapamientos.
 - Telegram es la interfaz de producto única del MVP. La CLI local queda para administración técnica, sesiones y pruebas, no como segunda UI comercial. No construir dashboard/Mini App en estas tareas.
-- Implementar productos primero, con nombres del núcleo general solo cuando sus casos los justifiquen. Otras verticales requieren confirmación formal del usuario; no diseñar un framework universal por anticipado.
+- Implementar solo productos, con nombres generales del núcleo (`Entity`, `Signal`, `Opportunity`, etc.) desde el primer commit. Otras verticales requieren confirmación formal del usuario; no diseñar un framework universal por anticipado.
 
 ## Trabajo paralelo A/B
 
