@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -161,5 +162,80 @@ func TestGateRefusalNeverSends(t *testing.T) {
 	c, _ := gateChannel(r.ID, 0)
 	if _, err = run(ctx, f, r, c, db, hash); err == nil || f.Calls["send"] != 0 {
 		t.Fatal("refused gate effect")
+	}
+}
+
+func TestListOwnIdentityOutsideFirstPageRemainsBounded(t *testing.T) {
+	ctx, r := context.Background(), sendRequest()
+	r.Method = "list_chats"
+	r.Body = json.RawMessage(`{"after":"","limit":20}`)
+	db, hash, err := journal(ctx, t.TempDir(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	f := &protocolFixture{FakeClient: whatsapp.FakeClient{Chats: map[string]contract.Chat{}}}
+	for i := range 25 {
+		ref := fmt.Sprintf("chat:a%02d", i)
+		f.Chats[ref] = contract.Chat{ChatRef: ref}
+	}
+	f.Chats["chat:self"] = contract.Chat{ChatRef: "chat:self", DisplayName: "SYNTHETIC_SELF"}
+	page, _, err := f.ListChats(ctx, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range page {
+		if item.ChatRef == "chat:self" {
+			t.Fatal("fixture does not reproduce excluded self")
+		}
+	}
+	c, _ := gateChannel(r.ID, 1)
+	result, err := run(ctx, f, r, c, db, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := result.(map[string]any)
+	chats := private["chats"].([]map[string]any)
+	if len(chats) > 20 || len(chats) == 0 || chats[0]["is_self"] != true || chats[0]["chat_ref"] != "chat:self" || private["has_more"] != true {
+		t.Fatal("observed self missing/out of bounds or truncation hidden")
+	}
+	own := 0
+	for _, chat := range chats {
+		if chat["is_self"] == true {
+			own++
+		}
+	}
+	if own != 1 {
+		t.Fatal("self identity not unique")
+	}
+	// Underlying page is exactly full and reports no more. Inserting the self
+	// anchor must itself expose cropping, rather than retaining false.
+	f.Chats = map[string]contract.Chat{"chat:self": {ChatRef: "chat:self"}}
+	for i := range 20 {
+		ref := fmt.Sprintf("chat:z%02d", i)
+		f.Chats[ref] = contract.Chat{ChatRef: ref}
+	}
+	r.Body = json.RawMessage(`{"after":"chat:self","limit":20}`)
+	c, _ = gateChannel(r.ID, 1)
+	result, err = run(ctx, f, r, c, db, binding(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	private = result.(map[string]any)
+	chats = private["chats"].([]map[string]any)
+	if len(chats) != 20 || chats[0]["is_self"] != true || private["has_more"] != true {
+		t.Fatal("self insertion hid cropping")
+	}
+	// A late cursor still retains one authenticated self; this is not an
+	// exhaustive cursor API, and never makes additional network requests.
+	r.Body = json.RawMessage(`{"after":"chat:zz","limit":1}`)
+	c, _ = gateChannel(r.ID, 1)
+	result, err = run(ctx, f, r, c, db, binding(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chats = result.(map[string]any)["chats"].([]map[string]any)
+	if len(chats) != 1 || chats[0]["is_self"] != true || f.Calls["connect"] != 0 {
+		t.Fatal("own anchor failed or connected")
 	}
 }
