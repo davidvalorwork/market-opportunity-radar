@@ -56,3 +56,40 @@ Verificación independiente del baseline: `check_docs.py` aprobado;
 `pytest -q tests`: 1262 passed, 251 subtests, 1 skipped y 6 failed (356,78 s).
 Los seis fallos son ausencia de `tzdata` en el venv usado (UTC/IANA y metadata),
 no cambios del piloto; no se instalaron dependencias ni se declaró suite verde.
+
+## Incremental A28/A29 + host piloto (WIP, no aprobado)
+
+Árbol root observado `f8b16e82` más cambios no congelados. Los gates de captura
+previa, identidad real/dedupe y bypass del Worker antiguo quedan resueltos para
+el bridge nuevo: 26 pruebas Python y probe Go del journal pasan sin red. El host
+abre A14 antes del IPC y conserva Approval/texto exacto y revalidación fresca.
+El venv regenerado de root resuelve los seis fallos de timezone: 7 focales pasan.
+
+Diez probes propios pasan: age/keygen/config/factory reales sin IO a proveedores,
+parser apagado, self binding, excepción host/texto/propósito fija sin aprobación
+implícita, plan confirmable y cuatro límites/recuperaciones de investigación.
+
+Gates nuevos aún abiertos en este snapshot:
+
+- **P2 — progreso perdido tras drain + fetch.** `pilot_backend.py:303–322`
+  consume un pendiente antes del commit; `research_cache.py:398` recupera sólo
+  las refs de ese commit. Crash antes del checkpoint host devuelve una ref en
+  vez de las dos consumidas, sin nueva IO. Probe propio rojo. GENERAL_TASKS:
+  «checkpoints y dedupe conservan el progreso». Receipt debe abarcar el drain.
+- **P2 cerrado incremental — evidencia de capacidad sobreafirmada.** `pilot_sources.py:133–139`
+  clasificaba compose/send `probado_real` sólo por sesión paired. Dos probes
+  inicialmente rojos pasan con callback separado de evidencia por operación.
+  AGENTS: «fuentes/canales autorizados y verificados por operación». Permiso de
+  ensayo self acotado no demuestra éxito de otras operaciones. Tres pruebas
+  adicionales pasan: self fijo queda propuesto; otro destinatario o texto se
+  bloquean en el repositorio real con canal nonfixture/capacidad documentada.
+- **Gates funcionales self cerrados en `2882d5f`.** `/chats` exigía self en la primera página de 20;
+  identidad aleatoria podía quedar fuera. Helper ancla la identidad autenticada
+  dentro del límite y declara el recorte. Captura opt-in IsFromMe sólo propia y
+  seleccionada, ID real y sin mutar el evento ni fabricar incoming desde ACK.
+  Cinco casos focales Go independientes pasan; legado permanece intacto.
+  Eco del proveedor no garantizado: `/leer` sólo refleja lo capturado, límite
+  declarado explícitamente; no prueba lectura, entrega ni historial completo.
+
+Dictamen provisional: no apto aún para activar el trayecto declarado. Sin nuevas
+cuentas/red/secretos, sin aprobación cloud ni afirmación de lectura/envío real.
