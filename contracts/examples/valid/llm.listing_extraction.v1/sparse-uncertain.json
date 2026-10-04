@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "title": "Zapatos deportivos talla 42",
+  "brand": null,
+  "model": null,
+  "variant": "talla 42",
+  "condition": "unknown",
+  "quantity": null,
+  "price": null,
+  "authenticity_claim": "none",
+  "uncertain_fields": [
+    "brand",
+    "condition",
+    "price"
+  ],
+  "evidence_quote": "zapatos deportivos talla 42, pregunta por precio"
+}
