@@ -15,6 +15,28 @@ o sesiones proporcionadas explícitamente se gestionan por cuenta/plataforma;
 no garantizan acceso ni soporte universal. Cada operación requiere capacidad
 comprobada, permisos y preflight. Mensajería real no está activada por este cambio.
 
+## Modo general: información, chats y respuestas
+
+El núcleo admite pedidos sobre cualquier tema: buscar y contrastar información,
+leer conversaciones habilitadas, preparar respuestas, contactar a destinatarios
+autorizados y programar tareas. «Lee mis chats», «responde esto» e «investiga este
+tema y responde» son ejemplos de lenguaje natural, no comandos ya disponibles
+en todas las cuentas. La investigación puede abrirse en cualquier etapa ante un
+dato faltante o una nueva pregunta, conservando la tarea y evidencia vigentes.
+Una respuesta literal dictada por el propietario no obliga a buscar ni usar IA.
+
+Flujo previsto: pedido → plan y preflight → lectura/investigación según necesidad
+→ informe o borrador contextual → aprobación del texto/destinatario aplicable
+→ acción por canal verificado → recepción y seguimiento. Productos y talleres
+no son campos obligatorios. Mensajes y páginas externas aportan datos, no órdenes.
+
+Los candidatos A16/A18/A19 tienen pruebas locales de composición, persistencia,
+privacidad, presupuestos y lectura HTTP/DNS acotados. Son ramas de preparación,
+no un bot desplegado ni soporte social universal. Selección automática de
+«esto/aquello», clasificación de chats pendientes, filtro «hoy», cuentas y fuentes
+reales siguen pendientes. Estado y revisión por entrega en el tablero principal;
+un snapshot de worktree no sustituye ese registro.
+
 ## Módulo opcional: oportunidades comerciales
 
 Busca ofertas y solicitudes de compra en tiendas, mayoristas, marketplaces y redes
@@ -26,10 +48,13 @@ Global product sourcing and resale intelligence: discover listings across the op
 web and social channels, match equivalent products, and estimate cost-aware margins
 with source evidence. Local-first, configurable and designed around Agent Reach.
 
-**Estado: arquitectura y laboratorio Docker local, 2026-10-03.** Incluye un
-runner de mediciones, un handler de navegador con fixture sintético y un CLI de
-sesiones cifradas. No contiene todavía un buscador, comparador comercial ni
-dashboard operativo. La configuración del producto sigue siendo una propuesta.
+**Estado: preparación local, 2026-10-04.** A1/A2/A0b están
+integradas localmente; A3 añade un incremento en su rama para revisión: implementación
+del webhook Telegram con updates/directorio sintéticos, SQLite durable, cola/worker/UI falsos y
+comparación de registros con evidencia. Incluye también el laboratorio Docker
+y el CLI de sesiones cifradas. No hay buscador comercial ni fuente real verificada.
+Esta rama A0g incorpora A3 sólo para conciliar documentación y probar preparación;
+no integra A3 en `main` ni sustituye su revisión B pendiente.
 No hay campañas, compras, ventas, mensajes o ganancias reales generadas por este
 proyecto. No es Job Radar ni una demo de facturas. La implementación A/B empieza
 por contratos, dominio y flujo local; ver [tablero](docs/work/BOARD.md),
@@ -92,8 +117,9 @@ Revisión humana e informes por Telegram (previstos)
 ```
 
 Una corrida podrá detenerse y reanudarse. Las fuentes bloqueadas no se contarán
-como búsquedas exitosas ni como mercados sin ofertas. No se comprarán productos,
-contactarán vendedores ni publicarán anuncios automáticamente.
+como búsquedas exitosas ni como mercados sin ofertas. Hallar un contacto no
+autoriza un envío: contactar exige encargo, destinatario/texto aprobados y canal
+verificado. Compras, pagos y publicaciones requieren un encargo separado.
 
 ## Qué tendrá cada oportunidad
 
@@ -209,6 +235,81 @@ CPU, tiempos, imagen, errores y cleanup. Mantiene 4 GiB de reserva en el host y
 No borra ni detiene otros contenedores. Los límites Docker no reproducen el CPU,
 networking ni la facturación de AWS.
 
+## Probar el flujo sintético A3
+
+En un entorno Python 3.11+ aislado, instalar las dependencias fijadas y ejecutar:
+
+```powershell
+python -m pip install --no-deps -r requirements.lock
+python -m pip install --no-deps setuptools==84.0.0
+python -m pip install --no-deps --no-build-isolation ".[test]"
+python -m pip check
+$env:PYTHONPATH="src"
+python -m pytest -q tests/flow
+```
+
+La integración programática está en `radar.adapters.local.runtime.LocalRuntime`:
+recibe una ruta SQLite privada (por ejemplo `.local/control.sqlite`), fixtures
+de campos crudos y `synthetic_authorized=True`. Se configura un directorio
+numérico **sintético**, consentimiento, `SavedSearch` por propietario y capacidad
+autorizada; `webhook.handle_update(...)` recibe `/buscar fixture`. Después,
+`pump(owner_ref, search_ref="search:perfume")` procesa la cola durable baseline
+`commands.fifo`, worker falso y resultados v1 validados hasta el informe/UI falsa.
+Acepta sobres canónicos v1/v2 de B7 y conserva la versión del comando en cada
+tarea, continuación y resultado; browser/Telegram siguen usando payloads v1.
+El webhook actual emite sobre v2. Esto no habilita los nuevos handlers WhatsApp.
+[Ejemplo programático reproducible](tests/flow/test_search_flow.py) y
+[configuración sintética explícita](tests/flow/conftest.py).
+
+SQLite guarda receipt + comando + outbox en una transacción; conserva IDs al
+replay, snapshot de búsqueda/costos, presupuestos de trabajos/páginas, cursor,
+resultados y alert intents locales. Estos intents tienen tipo propio y **no** son
+un nuevo kind de transporte v1. Publicar antes de marcar puede repetir;
+consumidores y UI falsa convergen. Los resultados admitidos antes del deadline
+pueden proyectarse después; no se inicia otra página vencida.
+
+El presupuesto incluye un máximo explícito de comparaciones por corrida, con
+pares ya evaluados, contador y razón visible al limitar candidatos. Es un arnés
+acotado, no un benchmark ni un índice de búsqueda optimizado.
+El dominio normaliza, compara y calcula con A2; el reporte muestra cobertura,
+errores, descartes, faltantes y IDs. El costo de cómputo USD sigue desconocido.
+Límites actuales: 18 monedas, liquidación de lotes completos y costos aplicables
+declarados; los precios publicados no acreditan ventas ni ganancias realizadas.
+Datos sintéticos públicos permanecen en blobs locales sin cifrar; este adaptador
+rechaza referencias privadas y no simula age. IA y fuentes reales siguen apagadas.
+
+Este corte cubre búsqueda/resultados y fallos locales; aprobación/envío/
+reconciliación simulados tienen pruebas de autoridad vigente, crashes, leases,
+owners separados y proofs del diario independiente del proveedor falso.
+Solo un actor de rol owner puede aprobar; cambiar permiso, consentimiento,
+sesión o vencimiento después del claim impide el efecto simulado. Caídas dejan
+`send_uncertain`, sin reenvío; una referencia de proof resuelta por propietario
+y correlación previa permite reconciliar. Estas transacciones del proveedor falso
+no son fencing ni evidencia de comportamiento de WhatsApp real.
+El adaptador de `UnitOfWork` es parcial: recepción/claim están cableados;
+`approve_action`, `record_result` y `transition` con wire outbox se rechazan sin
+mutación, hasta disponer de payload privado/proveedor verificado. No acredita
+conformidad completa A1 ni integración con Go real/AWS. `/stop` es cancelación
+local durable, no Logout en WhatsApp. Los demás comandos B2 se aparcan en una
+cuarentena local durable como `unsupported`; no se presentan como implementados.
+La cuota de cola es por propietario. Cancelación, stop, revocación,
+consentimiento retirado, deadline y resultado obsoleto se aparcan antes del ACK,
+con IDs, hash y código estático, sin texto privado. La allowlist exacta está en
+`PERMANENT_REJECTIONS`; conflictos desconocidos, almacenamiento y crashes
+siguen visibles y no se ACKean. La cuarentena no es una DLQ de AWS ni un nuevo
+handler: conserva comando/evidencia para inspección local, sin reenvío automático.
+Reconsentir no reactiva un actor revocado.
+Las alertas denegadas por directorio permanecen sin marcar; se omiten solo en
+esa pasada keyset para no bloquear otros destinatarios ni siguientes lotes.
+El diagnóstico devuelve únicamente referencia y código estático; los demás
+errores de UI/persistencia siguen propagándose.
+La conexión serializa sus operaciones y mantiene el lock hasta commit/rollback; cursores se materializan
+bajo ese lock. Esto permite hilos locales, no garantiza paralelismo de consultas
+ni fencing de proveedores. Timestamps UTC llevan seis decimales fijos; la cola
+sigue leyendo timestamps históricos de segundo completo. Cancelar una corrida
+terminal no altera su estado ni versión. Telegram sigue siendo
+la única UI comercial prevista; este arnés no añade otra CLI de producto.
+
 `--host-reserve-gib` permite configurar explícitamente la reserva (3–16 GiB,
 default 4). Una reducción queda marcada `reduced_reserve_experiment`; no se hace
 automáticamente para conseguir un test aprobado.
@@ -235,16 +336,17 @@ ausencia de archivos privados versionados. Los tests Python cubren también el
 runner con Docker simulado; los de Node comprueban contratos sintéticos sin
 dependencias externas. Ninguno reemplaza las pruebas Docker ni prueba redes
 sociales. GitHub Actions ejecuta guardas documentales y pytest en Windows y Linux.
-Pytest requiere las dependencias de test: en la línea base sin `pyproject.toml`,
-CI usa `pytest==9.1.1`; después de B1 usará el extra `.[test]` del proyecto.
-Node/Go del producto se incorporarán a CI al integrar B1/B3; no se presume
-que sus contratos o workers estén listos por existir este documento.
+Pytest requiere las dependencias fijadas en `requirements.lock` y el paquete
+local con su extra `.[test]`, según las instrucciones anteriores. A0b ya añade
+jobs Python Windows/Linux, contratos Node y ambos módulos Go. Las pruebas
+locales no demuestran una corrida de GitHub Actions ni validan cuentas reales.
 
 ## Límites y siguiente entrega
 
-La siguiente entrega será una vertical mínima: importar anuncios autorizados,
-normalizarlos, comparar variantes y producir un reporte reproducible de costos,
-sin acciones externas. Después se habilitarán fuentes una por una al verificar
+El incremento A3 permite normalizar fixtures y producir informes reproducibles
+de costos sin acciones externas. Falta revisar/integrar la rama y construir
+conectores de fuentes autorizadas y adaptadores wire para las acciones. Después
+se habilitarán fuentes una por una al verificar
 acceso y extracción; la cuota de búsqueda no reemplazará la calidad de comparación.
 
 Ni la publicación del repositorio ni un test aprobado demuestran utilidad real,
@@ -255,3 +357,7 @@ comerciales registrados con consentimiento.
 
 [Apache-2.0](LICENSE). Copyright 2026 David Valor. La licencia del código propio
 no concede derechos sobre contenidos, imágenes, marcas ni datos de terceros.
+El worker Go incorpora dependencias con obligaciones propias: B registra una
+dependencia transitiva GPL-3.0 en [su inventario](go/README.md). Distribuir un
+binario/imagen del worker exige resolver esas obligaciones; A3 no distribuye
+binarios ni imágenes y no convierte todas las dependencias en Apache-2.0.

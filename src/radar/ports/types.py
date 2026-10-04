@@ -1,7 +1,8 @@
 """Internal control DTOs, not another definition of the JSON wire schemas.
 
-EnvelopeDocument is a document validated by boundary adapters with
-radar.contracts.validate('envelope.v1', ...). Never put decrypted payloads in it.
+EnvelopeDocument is a document validated by boundary adapters with the canonical
+envelope.v1 or envelope.v2 selected by schema_version. Never put decrypted
+payloads in it; the envelope version does not imply the same payload version.
 OwnerScope is an opaque authorization scope, not proof of authentication.
 """
 
