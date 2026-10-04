@@ -65,7 +65,7 @@ Build con Docker pesado previamente reclamado en BOARD:
 
 ```powershell
 docker build --platform linux/amd64 -f workers/browser/Dockerfile -t market-radar/a4-browser:test .
-docker run --rm --network none --read-only --cap-drop ALL --pids-limit 256 --cpus 1 --memory 768m --memory-swap 768m --tmpfs /tmp:rw,exec,nosuid,nodev,size=512m --entrypoint node market-radar/a4-browser:test --test /var/task/workers/browser/selftest.mjs /var/task/workers/browser/process-selftest.mjs /var/task/workers/browser/e2e.mjs
+docker run --rm --network none --read-only --cap-drop ALL --pids-limit 256 --cpus 1 --memory 1024m --memory-swap 1024m --tmpfs /tmp:rw,exec,nosuid,nodev,size=512m --entrypoint node market-radar/a4-browser:test --test /var/task/workers/browser/selftest.mjs /var/task/workers/browser/process-selftest.mjs /var/task/workers/browser/e2e.mjs
 ```
 
 RIE se prueba adicionalmente con el entrypoint oficial, sin publicar puertos y
@@ -93,14 +93,35 @@ Estado observado, 2026-10-03:
   imagen `sha256:8911d1f1dbcd86740d7d3b6621e7c50223900269713e18c7d8aae9d9807d5dbb`.
   Linux ligero final 256 MiB: 33/33 sin skips (31 ligeros + 2 descendientes),
   con `process-selftest.mjs` montado read-only porque se añadió tras ese build.
-  Los tests Chromium/RIE finales siguen pendientes: el guard detuvo el reensayo
+  En ese corte los tests Chromium/RIE finales quedaron pendientes: el guard detuvo el reensayo
   antes de crear un contenedor por RAM insuficiente del host. El éxito inicial
   no se atribuye automáticamente al nuevo código de limpieza.
 
-Se preservó reserva del host 4 GiB + margen 25%; 1024 MiB no se ejecutó.
-768 MiB fue un experimento explícito autorizado, sin bajar la reserva. Contenedores
-propios `--rm` eliminados; los cinco contenedores ajenos no se modificaron.
-Revisión cruzada e integración siguen pendientes. No son métricas AWS,
-facturación cero ni cobertura comercial/social. Reconstruir desde el árbol actual
-incluye todos los tests en la imagen; una imagen anterior no contiene necesariamente
-la documentación/test añadidos posteriormente.
+- Gate final tras recuperar RAM, mismo día, código `078fd06` sin cambios:
+  build desde ese commit incluye todos los tests y README. Imagen inspect ID
+  `sha256:5a0f7556d640defc54c0ef6c249c6cadeec4288b12bb211f95689bb0e40672cc`;
+  config `sha256:1fe7058f46f47f659ec4559bfeb1a198458240eb3feb82ba5e479819eb065b0c`.
+  Docker offline **42/42** (31 ligeros + 2 procesos + 9 E2E), 24.461 s;
+  RIE **44/44** (misma suite + 2 invocaciones RIE), 31.168 s, sin skips,
+  fallos ni OOM. Comprobado cierre de contextos, perfil, servidor y descendientes
+  vivos, también ante fallo/deadline; bindings y estado incompleto rechazados.
+  1024 MiB RAM/swap, CPU 1, 256 PIDs, red none, read-only, cap-drop ALL,
+  tmpfs `/tmp:rw,exec,nosuid,nodev,size=512m`, sin puertos publicados ni mounts.
+  Host libre antes de cada ensayo: 7.530 y 7.306 GiB; guard mínimo 5.25 GiB
+  conserva reserva de 4 GiB y margen del 25% sobre los 1024 MiB solicitados.
+  Cgroup offline: pico 367222784 bytes, CPU total 23.731 s; RIE: pico 551809024
+  bytes, CPU total 30.439 s. Son agregados de suites/runtime/CLI de pruebas,
+  no métricas por invocación, perfil CPU de Lambda ni factura AWS.
+  Reporte privado en `workers/browser/.local/reports/a4-final-078fd06.json`:
+  stdout, configuración y manifiesto de hashes de archivos tracked de worker y
+  schemas. SHA-256 del manifiesto JSON UTF-8 ordenado por path:
+  `0a8d8b2b8f310c57f7262b84b84596a58d3dca4e3357101b044411d9b08c1467`.
+  Identifica archivos observados en el build, incluyendo README de `078fd06`;
+  esta actualización posterior solo cambia documentación, no código de la imagen.
+
+Se preservó la reserva del host en todos los cortes. 768 MiB fue un experimento
+explícito previo; el gate final sí se ejecutó a 1024 MiB. Contenedores propios
+`--rm` eliminados; los cinco contenedores ajenos no se modificaron. Claude registró
+aprobación condicionada al gate final en BOARD; el ensayo del implementador pasó,
+y la verificación independiente del coordinador e integración siguen pendientes.
+No son métricas AWS, facturación cero ni cobertura comercial/social.
