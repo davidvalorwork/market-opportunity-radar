@@ -1,88 +1,157 @@
-# Arquitectura propuesta
+# Arquitectura de implementación
 
-Estado: diseño, no componentes instalados o funcionales. Un monolito modular local
-con arquitectura hexagonal es la primera opción; no microservicios por cada plataforma.
+Actualizado: 2026-10-03, tarea A0. Dirección: monolito modular hexagonal,
+**cuatro Lambdas por perfil de I/O y un CLI local**, con implementación local
+primero. La línea base contiene documentación y el laboratorio experimental;
+ningún componente cloud ni conector comercial está desplegado.
+Ver [revisión final A](research/architecture-final-review.md),
+[decisiones y autoridad](research/decisions.md),
+[plan A/B](research/agent-b/implementation-plan.md) y [tablero](work/BOARD.md).
 
-## Límites y puertos
+## Componentes y responsabilidades
 
-| Área | Responsabilidad | Puerto / contrato conceptual |
+| Unidad prevista | Tecnología | Responsabilidad |
 |---|---|---|
-| Dominio | Producto, variante, anuncio, moneda, costo y oportunidad | Entidades y reglas sin navegador, red, LLM ni base de datos |
-| Aplicación | Planificar corrida, coordinar etapas y reanudar trabajo | Casos de uso con IDs y configuración versionada |
-| Descubrimiento | Encontrar URLs/anuncios y solicitudes de compra | `discover(query, cursor) -> page + coverage` |
-| Lectura | Extraer datos permitidos de anuncios encontrados | `fetch(reference) -> evidence + typed_fields` |
-| Equivalencia | Resolver identidad/variante/condición/unidad | `match(a, b) -> compatible/conflict/uncertain + reasons` |
-| Economía | Evaluar escenarios con datos conocidos | `estimate(scenario) -> complete/incomplete + breakdown` |
-| Persistencia | Guardar anuncios, hashes, historial y checkpoints | Repositorios transaccionales y migraciones explícitas |
-| IA opcional | Resolver casos ambiguos con presupuesto limitado | Entrada/salida estructurada y evidencia; nunca controla acciones externas |
-| Presentación | CLI, reportes y dashboard | Mismos casos de uso; no duplicar cálculos en frontend |
-| Telemetría | Trazas, métricas y errores sin secretos | Eventos correlacionados y exportador opcional OpenTelemetry |
+| `bot` Lambda | Python | Webhook Telegram: secreto, tamaño, usuario/roles y recepción durable; no crawling ni LLM |
+| `app` Lambda | Python | Casos de uso, lotes HTTP permitidos, resultados, outbox, reparación, comparación/costos e informes |
+| `browser` Lambda | Node + Playwright/OpenCLI | Lecturas que requieren JavaScript/CDP, datos crudos y evidencia por contrato |
+| `whatsapp` Lambda | Go + whatsmeow | Pair/sync/send, protección técnica de operaciones y snapshot de protocolo |
+| `sessions-admin` local | Go + age | Preparar/renovar estado exportado explícitamente; no extraer cookies ni autenticar automáticamente |
 
-Los nombres de métodos son contratos de diseño, no APIs ejecutables existentes.
+Telegram es la **única interfaz de producto del MVP**. El CLI local administra
+sesiones y pruebas; no es segunda UI comercial. Dashboard/Mini App y otras
+verticales quedan fuera. Productos es la primera vertical; nombres como Entity,
+Signal y Opportunity se introducen por casos concretos, no como framework universal.
 
-## Tecnología inicial propuesta
-
-Python 3.11+ para orquestación y cálculo decimal; SQLite para uso local y checkpoints;
-JSON versionado para contratos/configuración. Subprocesos acotados invocan Agent
-Reach/OpenCLI; nunca concatenar contenido de anuncios en un shell.
-
-La interfaz inicial puede ser HTML/JS ligera. TypeScript/React, PostgreSQL y pgvector
-se introducirían cuando haya requisitos comprobados de interfaz, concurrencia o
-recuperación semántica. No instalar frameworks/modelos para aparentar progreso.
-Conservar tests de dominio independientes de credenciales y redes sociales.
-
-## Etapas persistentes
+## Flujo durable previsto
 
 ```text
-planned → preflight → discovering → extracting → normalizing
-        → matching → estimating → pending_review → reported
+Telegram -> bot -> transacción: receipt + command + outbox
+                                    |
+                          app: relay idempotente
+                                    v
+                            commands.fifo -> app
+                                              |
+                      +-----------------------+---------------------+
+                      |                       |                     |
+                 HTTP/feed               browser.fifo         whatsapp.fifo
+              lotes permitidos                |                     |
+                  en app                    Node                    Go
+                      +--------- resultado durable + outbox --------+
+                                              |
+                                    results Standard -> app
+                                              |
+                           normalizar/comparar/estimar -> Telegram
 ```
 
-Corridas también pueden estar `paused`, `failed`, `cancelled` o `degraded`; tareas
-individuales conservan etapa, último error y fecha del próximo intento. Una fuente
-agotada es distinta de una fuente que falló. Detener la corrida no debe perder lo leído.
+Baseline de **cuatro colas de trabajo** más sus DLQ. R1 es un experimento:
+comparar ejecución de comandos directamente desde Streams para retirar un salto
+y `commands.fifo`. No está implementado ni decidido por un diagrama. Las pruebas
+0.5/1 deben demostrar replay, orden por agregado, fallos por shard y reparación;
+conservar FIFO si la alternativa complica consistencia. No confiar en orden global
+de items del stream ni en `message_id` como único ID de una operación.
 
-El checkpoint incluye configuración/hash, cursor, fuente, anuncio, versión de
-extractor/matcher/calculadora, escenario de costos y dependencias. Reanudar no
-duplica anuncios u oportunidades y no usa resultados obsoletos sin invalidación.
-No hay efectos de compra/venta o mensajes que deduplicar en el MVP de solo lectura.
+Los grupos incluyen propietario: comandos por usuario/agregado, navegador
+autenticado por cuenta, público por dominio/shard acotado y WhatsApp por cuenta.
+Cuotas compartidas entre shards; crear grupos no multiplica presupuesto. Un
+escritor por cuenta con lease adquirido por el worker, no heredado del mensaje.
 
-## Paralelismo y batch
+## Estado y consistencia
 
-- Pool global limitado y cuota por dominio/cuenta/backend.
-- Lecturas HTTP independientes pueden ser concurrentes; una sesión de navegador
-  compartida que cambia de pestaña requiere serialización o workers aislados compatibles.
-- APIs batch donde exista soporte probado; no simular batch con pestañas ilimitadas.
-- Deduplicar antes de lecturas caras y de inferencia; cachear entradas por contenido/versiones.
-- Reintentar solo errores transitorios; backoff con jitter y límites por corrida.
-- Circuit breaker por fuente; mantener estado explícito de cobertura incompleta.
+- DynamoDB es la autoridad cloud de control: versiones, recibos, ledger,
+  outbox, leases, presupuesto y referencias. S3 guarda blobs inmutables de
+  evidencia, informes y sesiones cifradas; SSM contiene secretos con mínimo privilegio.
+- SQLite ofrece transacciones locales; la base de protocolo whatsmeow sigue
+  siendo mutable y propiedad de Go. No se interpreta "DynamoDB único" como
+  eliminar ese estado o mover la lógica de protocolo a Python.
+- Receipt + command + outbox se guardan atómicamente antes del acuse. El relay
+  publica y marca; si cae puede repetir, por lo que el consumidor es idempotente.
+  Filtrar eventos de su propia marca y reparar pendientes de forma paginada, sin
+  Scan global ni TTL que elimine trabajos no publicados.
+- El worker guarda resultado/versión/outbox antes de reconocer la tarea. Un
+  replay recupera el resultado; no vuelve a ejecutar un efecto confirmado/incierto.
+- Blob nuevo primero, luego CAS del puntero. Una caída puede dejar un huérfano;
+  snapshot SQLite debe ser consistente respecto de WAL. No compartir perfil writable.
 
-## Matching y recuperación
+Contratos JSON Schema versionados y ejemplos dorados comunes a Python/Node/Go.
+Dinero Decimal como string + moneda; timestamps UTC; desconocido no es cero.
+IDs separados de mensaje, operación, correlación y causación; referencias cifradas
+en lugar de contenido privado en colas. Rechazar esquemas desconocidos y campos
+no admitidos. La configuración de ejemplo sigue documental y desactivada.
 
-Primero GTIN/EAN/SKU cuando sean fiables y aplicables, marca/modelo/variante,
-condición, volumen, unidad y tamaño de lote. Conflictos críticos no se resuelven por
-similitud de texto o fotos. Identificadores declarados no prueban autenticidad.
+## Efectos externos: diseñados, no habilitados
 
-Como evolución, comparar búsqueda textual, vectorial e híbrida sobre el mismo
-corpus y consultas anotadas. pgvector ofrece un ejemplo de [búsqueda híbrida](https://github.com/pgvector/pgvector#hybrid-search).
-Embeddings no son obligatorios para la primera comparación ni prueban equivalencia.
+```text
+proposed -> approved -> dispatch_committed -> provider_confirmed
+                              |
+                              +-> send_uncertain -> reconciliation/review
+```
 
-## Telemetría y observabilidad
+La aprobación liga propietario, cuenta, destinatario, propósito, hash, versión
+y vencimiento. Claim transaccional antes del efecto; lease comprobado justo antes
+del envío. **No es fencing del proveedor ni garantía exactly-once**. Si falta
+confirmación durable, no repetir automáticamente ni borrar ledger al expirar un
+lease. Dedupe FIFO de cinco minutos no sustituye historial durable. Cancelar
+impide acciones pendientes, no revierte una ya iniciada.
 
-Trazar `run -> discovery -> fetch -> parse -> match -> estimate -> review`, con
-IDs correlacionados, tiempos, intentos, fuente, estado de caché y clase de error.
-Métricas: anuncios únicos, cobertura por fuente, extracción correcta, candidatos
-compatibles, costos desconocidos, oportunidades revisadas/aceptadas, duplicados,
-latencia, consumo local/API e inferencias evitadas.
+Esta tarea construye diseños/fakes locales; [SECURITY](../SECURITY.md) mantiene
+bloqueados mensajes reales, compras, pagos, reservas, publicaciones, follows y
+grupos sin autorización separada. WhatsApp necesita dispositivo propio, JID que
+coincida con número declarado y prueba real posterior; no clonar el bridge personal.
 
-Las convenciones GenAI de [OpenTelemetry](https://github.com/open-telemetry/semantic-conventions-genai)
-están en desarrollo; fijar versiones al adoptar el exportador. No registrar prompts,
-cookies, mensajes privados o contenido sensible por defecto. Un fallo de exportación
-no debe bloquear cálculos locales; sí debe quedar visible.
+## Capas previstas
 
-## Despliegue y seguridad
+```text
+src/radar/domain/             reglas puras, dinero, productos, estados
+src/radar/application/        casos de uso y coordinación por puertos
+src/radar/ports/              UoW, outbox, ledger, leases, UI, fuentes, reloj
+src/radar/adapters/local/     SQLite + fakes/colas de prueba
+src/radar/adapters/aws/       DynamoDB, S3, SQS y SSM
+src/radar/adapters/telegram/  transporte Bot API
+src/radar/adapters/sources/   HTTP/feed y capacidades verificadas
+src/radar/entrypoints/        handlers y herramientas técnicas
+contracts/                   esquemas comunes y casos válidos/negativos
+workers/browser/             Node I/O; helper age por pipes
+go/                          protocolo WhatsApp y vault age compartido
+infra/sam/                   infraestructura futura, no provisionada
+lab/                         fixtures y benchmarks actuales preservados
+```
 
-Uso local primero. Antes de un dashboard multiusuario: identidades autenticadas,
-permisos por proyecto/operación, aislamiento de datos, auditoría y protección de
-sesiones. No exponer el servidor local en Internet sin esa implementación y pruebas.
-No hay despliegue cloud ni servicios provisionados en esta entrega.
+Dominio no importa SDKs/red/adaptadores; aplicación usa dominio y puertos.
+Workers no recalculan reglas comerciales. El laboratorio queda intacto como
+baseline fixture-only; no abrir sus guardas para declarar una prueba real como fixture.
+
+## Eficiencia, seguridad y costo
+
+HTTP/feed/JSON-LD primero **solo con permiso y capacidad verificados**; Chromium
+cuando sea necesario. Pools acotados, conexiones reutilizadas, caché incremental,
+ETag/Last-Modified si existen, dedupe antes de lecturas caras. Cursor/continuación
+durable por lote, no miles de URLs por handler. Backoff con jitter y circuit breaker;
+SSRF, DNS y cada redirect validados; rechazos/MFA producen blocked/needs_reauth.
+
+age protege contenido, no autentica al uploader ni revoca copias antiguas.
+Carga autenticada, hash/CAS, claves fuera de Git/logs y permisos por propietario;
+import sigue unverified hasta prueba autorizada. Respaldo local en PC permitido
+según respuesta reportada B-Q006, no implementado; sin proxies ni evasión.
+
+R2: concurrencia reservada limita ejecuciones simultáneas, **no el acumulado de
+invocaciones ni una factura universal**. Presupuesto se reserva atómicamente
+por alcance común, no se reinicia por worker/shard; separar trabajos, requests,
+tokens y tiempo. Incluir almacenamiento, red, logs y reintentos; límites proveedor
+no equivalen a costo USD 0. Free tier/cuenta/canary deben verificarse antes de AWS.
+Los límites Docker no reproducen asignación CPU ni facturación Lambda.
+
+IA desactivada por defecto, opcional y evaluada contra baseline determinístico.
+Sin fallback pagado ni datos privados implícitos; caché incluye contenido, modelo,
+prompt/esquema/versiones, idioma y ámbito. No decide cada acción ni aprueba envíos.
+Telemetría JSON sin secretos/PII: cobertura, latencia/cola, RAM, outbox pendiente,
+errores, descartes, coste estimado/real diferenciado y oportunidades válidas.
+
+## Verificación incremental
+
+Contratos/dominio e invariantes (nivel 0), flujo falso completo en proceso (0.5),
+conformidad local/AWS (1), fallos/replay/incertidumbre (2), runtime Docker/RIE,
+y solo tras autorización cuentas reales/canary. Aceptación: ninguna tarea aceptada
+perdida en fallos inyectados, ninguna incertidumbre reenviada, aislamiento de
+cuenta y presupuesto, informe de cobertura. Son criterios por construir,
+no resultados ya alcanzados. Fases y gates en [ROADMAP](ROADMAP.md).

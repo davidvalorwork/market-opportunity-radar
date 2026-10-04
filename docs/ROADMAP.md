@@ -1,79 +1,66 @@
 # Roadmap y criterios de salida
 
-Actualizado: 2026-10-03. No se prometen fechas ni ingresos. La incorporación de una
-fuente depende de acceso autorizado, capacidad comprobada y fixtures reproducibles.
+Actualizado: 2026-10-03, A0. Implementación local por fases, sin fechas ni
+ingresos prometidos. Fuente de tareas/dueños/dependencias:
+[BOARD](work/BOARD.md), [CODEX_TASKS](work/CODEX_TASKS.md) y
+[plan detallado B](research/agent-b/implementation-plan.md).
+Dirección y límites vigentes en [ARCHITECTURE](ARCHITECTURE.md),
+[decisiones](research/decisions.md) y [SECURITY](../SECURITY.md).
 
-## Fase 0 — Base documental (esta entrega)
+## Estado observado y autoridad
 
-- Nombre, descripción, README, visión, dominio y arquitectura.
-- Matriz de fuentes con límites, configuración de ejemplo y modelo económico.
-- Plan de evaluaciones, seguridad y roadmap.
-- Licencia Apache-2.0 y controles documentales sin secretos ni servicios externos.
+`6ae7cf2` es ancestro de `main`: la línea base de investigación, documentación
+y laboratorio está integrada localmente. No demuestra CI remota ni publicación.
+El usuario autorizó iniciar tareas A; A0 entrega una rama local para revisión,
+no un nuevo merge/push, cuenta real o cloud. Las respuestas de arquitectura
+R1–R4 y B-Q006 están reportadas por Claude; ver registro de decisiones.
 
-Criterio: enlaces/configuración/documentación coherentes y repositorio publicado.
-No equivale a un buscador operativo.
+Lab habilitador: navegador Lambda/RIE con Playwright/OpenCLI, sesiones age,
+versiones/CAS, upload/renew explícito y runner de recursos.
+[Resultados sintéticos y límites](testing/LOCAL_RESULTS.md). No son soporte
+social ni fase comercial terminada; la configuración de producto sigue documental.
 
-## Laboratorio habilitador — entrega local 2026-10-03
+## Fases F0–F15
 
-Navegador Lambda/RIE con Playwright y OpenCLI, sesiones age con versiones/CAS,
-wrapper de upload/renew explícito y runner de recursos/costos aproximados.
-[Resultados y pruebas negativas](testing/LOCAL_RESULTS.md). Implementación
-experimental con fixtures, no una fase comercial terminada ni soporte de redes
-sociales demostrado. Captura guiada, cuenta de ensayo y canary AWS son posteriores.
+El orden no es estrictamente numérico: F2/F4/F5 pueden avanzar cuando sus
+contratos/puertos estén disponibles; F3 integra sus entregas. Estados concretos
+de ramas en BOARD, no inferidos de esta tabla. **[U]** exige encargo/decisión
+separada antes de ejecutar el gate real.
 
-## Fase 1 — Vertical mínima local
+| Fase | Entrega y dueño | Criterio de salida / gate |
+|---|---|---|
+| F0 | Gobierno, baseline y CI (A) | Documentos coherentes, tablero, pytest/check_docs; integración/push solo autorizado |
+| F1 | Contratos v1 (B) y puertos (A) | Mismos ejemplos válidos/negativos en Python/Node/Go; capas sin SDK/red; revisión de contrato |
+| F2 | Dominio productos (A) | Decimal/tasas fechadas, estados/matching con razones y propiedades; desconocido ≠ 0 |
+| F3 | Flujo local completo (A integra B) | Telegram/worker falsos, SQLite receipt+command+outbox, replay/fallos; sin perder tareas ni reenviar incertidumbre |
+| F4 | Adaptador/webhook Telegram (B) | Secreto/roles, receipt idempotente, callbacks y 429 con updates sintéticos; única UI de producto |
+| F5 | Módulo Go y WhatsApp falso (B) | Vault age compartido, pair/sync/send por contrato, WAL/snapshot y clientes falsos; sin cuenta real |
+| F6 | Worker navegador (A) | Contratos, fixtures y helper age; HTTP permitido antes de Chromium; benchmark aislado |
+| F7 | Adaptadores AWS (A, revisión B) | Suites de conformidad local/moto/DynamoDB Local; outbox reparable y experimento R1, no provisionamiento |
+| F8 | SAM y controles de recursos (A, revisión B) | Build/local invoke sintéticos, IAM mínimo, DLQ/logs/visibilidad; R2 limita consumo sin prometer USD 0 |
+| F9 | Seguridad/privacidad (B, revisión A) | Amenazas, consentimiento y borrado/stop; **[U]** revisión aplicable antes de colaboradores/cuentas reales |
+| F10 | Pre-despliegue y canary | **[U]** Billing/free tier, Budgets, región/presupuesto y canary bot de prueba; costo real/IAM medidos |
+| F11 | Piloto WhatsApp | **[U]** número dedicado, vinculación/JID; recepción/reconexión medidas; envío y colaboradores con autorización separada |
+| F12 | Primera fuente real/evaluación (A) | **[U]** fuente/cuenta autorizadas; lectura inocua, dataset revisado, cobertura y límites visibles |
+| F13 | IA opcional (B) | **[U]** credenciales/presupuesto si aplica; flag apagado, caché y evaluación; mejora sin regresiones ni fallback pagado implícito |
+| F14 | Feedback, informes y operación (A/B) | JSON + Telegram, cobertura/salud, runbooks para DLQ/send_uncertain/needs_reauth y actualización de dependencias |
+| F15 | Segunda vertical | **[U]** alcance formalmente confirmado después de F12; fixtures y casos reales antes de generalizar dominio |
 
-- Importar CSV/JSON autorizado y fixtures sintéticos tipados.
-- Normalizar precio/moneda/variante/condición/unidad.
-- Matching determinístico con conflictos y candidatos inciertos.
-- Escenarios de costo decimal y reporte de datos faltantes.
-- CLI única, SQLite, checkpoints y tests de dominio/reinicio/idempotencia.
+R1 compara comandos directo desde Streams frente a `commands.fifo`; el baseline
+conserva cuatro colas hasta pruebas 0.5/1. R3 usa nombres generales justificados
+en productos, no implementa otras verticales. R4 exige permisos/capacidades antes
+de toda ruta HTTP. B-Q006 permite respaldo local sin proxies/evasión según el
+informe B; no habilita fuente/cuenta ni instala el fallback automáticamente.
 
-Criterio: mismo input/configuración produce reporte reproducible; casos de comparación
-inválida y costos desconocidos no generan oportunidades ficticias. Sin red ni IA obligatoria.
+## Definición de hecho por tarea
 
-## Fase 2 — Web y descubrimiento
+- Archivos reclamados y dependencias respetados; una rama/worktree por tarea.
+- Pruebas reales del área + `check_docs`; resultados/fallos y pendientes declarados.
+- Sin datos privados, servicios/cuentas/contactos activos ni flags habilitados por inercia.
+- Revisión del otro frente/coordinador antes de integrar; merge serial y push
+  solo bajo autorización aplicable. No afirmar fase completa por un documento.
 
-- Preflight, lector público permitido, URLs/feeds y adaptadores por dominio.
-- Caché, evidencia, historial, cobertura, timeouts y reintentos acotados.
-- Descubrimiento incremental y fuentes de búsqueda con cuotas explícitas.
-
-Criterio: lecturas reales verificadas en dominios seleccionados, errores visibles,
-sin claims de cobertura universal. Documentar fuentes que fallan.
-
-## Fase 3 — Marketplaces y redes sociales
-
-- Mercado Libre y canales Agent Reach/OpenCLI soportados y autorizados.
-- Facebook/publicaciones/grupos disponibles; Instagram por cuentas; X según capacidad real.
-- Configuración por cuenta/país, aislamiento de sesiones, cuotas y paginación.
-- Fuentes opcionales degradadas y requeridas bloqueantes antes de gastar presupuesto.
-
-Criterio: un conector probado por fuente habilitada y límites documentados. Marketplace
-de terceros no se presume disponible porque existen comandos de anuncios propios.
-
-## Fase 4 — IA opcional, búsqueda y evaluación rigurosa
-
-- Parser determinístico primero; modelo local instalado para ambigüedades acotadas.
-- Comparación textual/vectorial/híbrida si mejora un caso de recuperación concreto.
-- Dataset revisado por humanos, conjunto reservado, múltiples intentos y gates por caso.
-- Prompt/modelo/matcher/costo versionados; errores y salidas originales conservados.
-
-Criterio: mejora demostrable frente a baseline equivalente y sin regresiones críticas.
-No usar precisión de datos sintéticos como utilidad comercial validada.
-
-## Fase 5 — Dashboard, observabilidad y piloto
-
-- Interfaz ligera con filtros, detalle de evidencia y supuestos económicos.
-- Eventos/trazas correlacionadas y métricas de revisión/cobertura/costo.
-- Autenticación, permisos e aislamiento antes de cualquier uso multiusuario.
-- Piloto consentido con búsqueda manual comparable y feedback del usuario.
-
-Criterio: flujo end-to-end probado; resultados reales distinguidos de estimaciones;
-seguridad y accesos negativos comprobados antes de exposición de red.
-
-## Evolución posible, no compromiso actual
-
-Más categorías/mercados, inventario propio, precios de transacciones autorizadas,
-alertas consentidas, PostgreSQL/pgvector, exportación OpenTelemetry y servicios cloud.
-Acciones externas requieren un diseño y autorización separados. No hay campañas
-de contacto ni contribuciones a otros repos dentro de este roadmap.
+La visión sigue siendo productos/reventa con estimaciones, no campañas ni
+compraventa automática. Telegram es UI única MVP; dashboard/Mini App,
+vectores y otras verticales son posteriores, no dependencias instaladas.
+Rentabilidad requiere resultados comerciales consentidos, no porcentajes de fixtures.

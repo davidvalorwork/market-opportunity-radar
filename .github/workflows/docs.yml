@@ -24,8 +24,31 @@ jobs:
       - name: Validate documentary configuration and links
         run: python scripts/check_docs.py
       - name: Test documentation guardrails
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -p test_documentation.py -v
       - name: Compile quality scripts
         run: python -m compileall -q scripts tests lab
       - name: Check whitespace
         run: git diff --check HEAD
+
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install baseline test runner (before B1)
+        if: ${{ hashFiles('pyproject.toml') == '' }}
+        run: python -m pip install pytest==9.1.1
+      - name: Install project test dependencies (after B1)
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        run: python -m pip install -e ".[test]"
+      - name: Run Python tests
+        run: python -m pytest -q tests
+      # TODO(B1/B3): add Node/Go contract jobs after their implementations merge.
+      # No cloud, credentials or real accounts are required by this job.

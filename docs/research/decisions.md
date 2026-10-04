@@ -27,6 +27,29 @@ Este registro distingue límites de trabajo acordados de alternativas provisiona
 | R-020 | Corrección propuesta | Inbox/outbox transaccionales, resultados durables y reconciliación sin reenvío ciego | B-D056/R-013 no cierran por sí solos la doble escritura ni cercan al proveedor |
 | R-021 | Optimización propuesta; medir en fuentes reales | HTTP/feed primero; Chromium/OpenCLI cuando la capacidad lo requiera; grupos públicos separados de cuentas | Laboratorio muestra overhead en fixture, no prueba superioridad universal ni cobertura social |
 | R-022 | Alcance preservado | Mantener producto vigente y documentos B; cambios de AGENTS/arquitectura operativa al implementar alcance confirmado | El encargo actual pide verificación/propuesta, no activar infraestructura o ampliar producto automáticamente |
+| R-023 | Observado en Git local, 2026-10-03 | `6ae7cf2` contiene la línea base de investigación/lab/plan y es ancestro de `main`; A0 parte de `2d39a19` | Comprobado con log/show/merge-base; no demuestra push ni CI remota |
+| R-024 | Aprobación reportada por B; implementación A autorizada en este chat | Adoptar arquitectura final A con refinamientos R1–R4 como dirección de trabajo local | Informe B, sección "Plan de implementación y trabajo en paralelo", registra "Sí los 3"; no se afirma verificación independiente de ese chat |
+| R-025 | Experimento aceptado, no aplicado | R1: probar consumo directo de comandos desde Streams para evitar `commands.fifo`; conservar baseline de cuatro colas hasta decidir con pruebas 0.5/1 | Medir orden por agregado, replay, fallos de shard y reparación; volver a FIFO si complica consistencia |
+| R-026 | Control propuesto, pendiente de medición | R2: concurrencia reservada, cuotas de trabajos y reservas de presupuesto limitan consumo; no son techo duro universal ni garantizan USD 0 | Budgets es alerta tardía; billing/free tier y costo de almacenamiento/red/reintentos siguen pendientes |
+| R-027 | Alcance local de implementación | R3: productos con nombres del núcleo general justificados por sus casos; otras verticales pendientes; R4: HTTP primero solo con permiso/capacidad verificados | No habilita todo sitio ni cambia reglas de SECURITY; Telegram única UI MVP reportada en B-D038 |
+| R-028 | B-Q006 respondida según informe B; fallback no implementado | Si una fuente rechaza la sesión desde AWS, permitir respaldo local en el PC autorizado; sin proxies, evasión ni login oculto | El informe B registra la respuesta; cada fuente/cuenta real y canary todavía requiere encargo separado |
+| R-029 | Encargo vigente | Iniciar tareas A en worktrees aislados y entregar commits locales para revisión | "Empieza tus codex tasks" autoriza implementación local; no nuevos merges, push, AWS o contactos |
+
+## Adopción de B-D061–B-D064 — A0, 2026-10-03
+
+| ID de B | Estado integrado por A | Límite |
+|---|---|---|
+| B-D061 | Adoptado como diseño de implementación local | Lease adquirido por worker, inbox/outbox, HTTP permitido primero, ledger por propietario/destinatario/propósito e informes JSON + Telegram; código todavía pendiente |
+| B-D062 | Adoptado con precisiones R-025–R-027 | R1 se prueba, no se declara eliminación implementada; R2 no promete gratuidad ni techo universal; R3 no activa otras verticales; R4 conserva preflight |
+| B-D063 | Método de worktrees/tablero y propiedad adoptado | La tarea A0 no integra ramas ni cambia archivos reclamados por B |
+| B-D064 | Línea base observada localmente (R-023); autorización registrada por B | No se infiere permiso para otro merge ni que se haya publicado |
+
+Fuente conservada: [informe B](agent-b-sessions.md), sección "Plan de
+implementación y trabajo en paralelo" y tabla B-D061–B-D064;
+[plan](agent-b/implementation-plan.md), §1–§4. La dirección de implementación
+se refleja ahora en AGENTS/ARCHITECTURE/ROADMAP; estos documentos no prueban
+componentes desplegados. El contexto previo R-003/R-022 conserva su fecha y
+alcance histórico, no bloquea las nuevas tareas locales autorizadas.
 
 ## Cierre A — 2026-10-03
 
