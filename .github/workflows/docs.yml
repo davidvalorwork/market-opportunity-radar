@@ -36,7 +36,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    # A18's verified suite alone took 279 s locally, before dependency setup.
+    # This job envelope does not change any runtime deadline or retry policy.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -79,7 +81,20 @@ jobs:
           GOPROXY: 'off'
           GOSUMDB: 'off'
         run: go test -count=1 ./...
+      - name: Test bounded DNS helper without dependency network access
+        if: ${{ hashFiles('helpers/public-dns/go.mod') != '' }}
+        working-directory: helpers/public-dns
+        env:
+          GOFLAGS: '-mod=readonly'
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          go vet ./...
+          go test -count=1 ./...
       - name: Run Python tests
+        timeout-minutes: 10
         env:
           GOTOOLCHAIN: local
           GOWORK: 'off'

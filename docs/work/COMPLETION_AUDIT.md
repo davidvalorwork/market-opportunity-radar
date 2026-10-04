@@ -206,6 +206,13 @@ Sin ese setup, un runner Python limpio no tiene garantizado Go o caché age.
 YAML y condiciones/env fueron comprobados localmente; no se afirma ejecución
 remota ni se omiten las pruebas criptográficas para conseguir verde.
 
+El incremento A18 reportó 279.15 s de suite local antes del setup de dependencias:
+un job completo limitado a cinco minutos quedaría sin margen verificable. El
+job pytest pasa a 15 minutos y su paso de tests mantiene un techo de 10. No cambia
+plazos, cuotas ni reintentos del producto; tampoco acredita velocidad del runner
+remoto. Si existe `helpers/public-dns/go.mod`, CI ejecuta su vet y tests offline
+con la misma versión Go fijada; no realiza una consulta DNS de Internet.
+
 ## Próximos gates, sin reducir el objetivo
 
 1. Revisar A3 corregida/A0g y autorizar integración local aplicable; no sustituir
