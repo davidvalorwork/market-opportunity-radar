@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS research_cache_records(owner TEXT,ref TEXT,origin TEX
 CREATE INDEX IF NOT EXISTS research_cache_record_expiry ON research_cache_records(owner,expires);
 CREATE TABLE IF NOT EXISTS research_cache_seen(owner TEXT,cache TEXT,record TEXT,PRIMARY KEY(owner,cache,record));
 CREATE TABLE IF NOT EXISTS research_cache_pending(owner TEXT,cache TEXT,position INTEGER,record TEXT,PRIMARY KEY(owner,cache,position));
+CREATE TABLE IF NOT EXISTS research_cache_drains(owner TEXT,ref TEXT,cache TEXT,pass TEXT,result TEXT,PRIMARY KEY(owner,ref));
 '''
 
 
@@ -249,11 +250,46 @@ class SQLiteResearchCache:
         self.store.db.execute('UPDATE research_cache_passes SET new=new+? WHERE owner=? AND ref=?', (len(records), row[0], row[4]))
         return records
 
-    def drain(self, binding, *, pass_ref, expected_version, now):
+    def _drained_result(self, binding, row, receipt, pass_ref, now):
+        if row[4] != pass_ref:
+            raise CacheError('cache_pass_replay_mismatch')
+        if receipt[2:4] != (row[1], pass_ref):
+            raise CacheError('cache_drain_replay_mismatch')
+        if parse(row[5]) <= now:
+            raise CacheError('cache_expired_refresh_required')
+        records = tuple(self._record(binding.owner_ref, ref) for ref in json.loads(receipt[4]))
+        if any(record.expires_at <= now for record in records):
+            raise CacheError('stale_cached_record')
         self._check(binding, now)
+        return PageResult(records, self._view(row, now), True)
+
+    def recover_drain(self, binding, *, pass_ref, request_ref, now):
+        """Recover exactly one committed drain; never consume other pending refs."""
+        self._check(binding, now)
+        opaque(pass_ref)
+        opaque(request_ref)
+        with self.store.transaction():
+            self._check(binding, now)
+            receipt = self.store.db.execute('SELECT * FROM research_cache_drains WHERE owner=? AND ref=?',
+                                            (binding.owner_ref, request_ref)).fetchone()
+            if receipt is None:
+                return None
+            return self._drained_result(binding, self._row(binding), receipt, pass_ref, now)
+
+    def drain(self, binding, *, pass_ref, expected_version, now, request_ref=None):
+        self._check(binding, now)
+        if request_ref is not None:
+            opaque(request_ref)
         with self.store.transaction():
             self._check(binding, now)
             row = self._row(binding)
+            if request_ref is not None:
+                receipt = self.store.db.execute('SELECT * FROM research_cache_drains WHERE owner=? AND ref=?',
+                                                (binding.owner_ref, request_ref)).fetchone()
+                if receipt:
+                    return self._drained_result(binding, row, receipt, pass_ref, now)
+                if self.store.db.execute('SELECT count(*) FROM research_cache_drains WHERE owner=?', (binding.owner_ref,)).fetchone()[0] >= self.max_records * 10:
+                    raise CacheError('cache_drain_quota')
             if row[4] != pass_ref or row[3] != expected_version:
                 raise CacheError('cache_version_conflict')
             if parse(row[5]) <= now or parse(json.loads(self._pass(row)[4])['deadline']) <= now:
@@ -262,6 +298,9 @@ class SQLiteResearchCache:
                 raise CacheError('cache_request_uncertain')
             records = self._drain(binding, row, now)
             self.store.db.execute('UPDATE research_cache_streams SET version=version+1 WHERE owner=? AND ref=?', (row[0], row[1]))
+            if request_ref is not None:
+                self.store.db.execute('INSERT INTO research_cache_drains VALUES(?,?,?,?,?)',
+                    (binding.owner_ref, request_ref, row[1], pass_ref, _json([r.record_ref for r in records])))
             return PageResult(records, self._view(self._row(binding), now))
 
     def commit_page(self, binding, *, pass_ref, request_ref, expected_version, records,
