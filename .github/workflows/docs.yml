@@ -47,8 +47,60 @@ jobs:
         run: python -m pip install pytest==9.1.1
       - name: Install project test dependencies (after B1)
         if: ${{ hashFiles('pyproject.toml') != '' }}
-        run: python -m pip install -e ".[test]"
+        run: |
+          python -m pip install --no-deps -r requirements.lock
+          python -m pip install --no-deps setuptools==84.0.0
+          python -m pip install --no-build-isolation --no-deps -e ".[test]"
+          python -m pip check
       - name: Run Python tests
         run: python -m pytest -q tests
-      # TODO(B1/B3): add Node/Go contract jobs after their implementations merge.
       # No cloud, credentials or real accounts are required by this job.
+
+  node-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.15.0'
+          package-manager-cache: false
+      - name: Install locked contract dependencies without lifecycle scripts
+        working-directory: contracts/validate/node
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate golden contract examples
+        working-directory: contracts/validate/node
+        run: node validate.mjs
+      - name: Test preserved browser fixture harness
+        run: node --test lab/browser/selftest.mjs
+
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [contracts/validate/go, go]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    env:
+      GOFLAGS: '-mod=readonly'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Download and verify pinned module dependencies
+        run: |
+          go mod download
+          go mod verify
+      - name: Vet fixture-only module
+        run: go vet ./...
+      - name: Test contracts or fake worker without dependency network access
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: go test -count=1 ./...
