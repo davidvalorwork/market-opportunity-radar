@@ -37,8 +37,10 @@ idempotency port yet; agent A owns it). Each maps to a future port:
 - ``unit_of_work.commit(receipt, command, outbox) -> bool``: receipt/command/
   outbox unit of work. ONE transaction that conditionally creates every key in
   ``receipt["idempotency_keys"]`` (so ``idempotency.seen`` becomes true) and
-  stores the command and the outbox envelope. Returns False, writing nothing,
-  if any key already exists; raises on any other failure.
+  stores the command and the outbox envelope. Returns False if any key already
+  exists: no new command or outbox is created (it may record the new key of an
+  identical replay, e.g. another update_id for the same callback); raises on
+  any other failure, including a replay whose content does not match.
 - ``idempotency.seen(key) -> bool`` / ``idempotency.remember(key)``: idempotency
   store (DynamoDB conditional put + TTL). ``remember`` is used for updates that
   produce no command (unauthorized users, rejected commands): only the dedupe
