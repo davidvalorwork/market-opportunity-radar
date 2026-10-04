@@ -1,9 +1,11 @@
 # Módulo Go `radar.local/radar`
 
 Un solo módulo Go para el vault de sesiones age y el worker WhatsApp. Estado:
-**esqueleto probado con fakes, alineado con los contratos JSON v1**. No hay
-conexión WhatsApp real, ni dependencia whatsmeow, ni DynamoDB/S3/Lambda. Ningún
-test usa red, cuentas o números reales.
+**worker probado con fakes y adaptador whatsmeow compilado y probado offline,
+alineado con los contratos JSON v1**. El adaptador real (`internal/whatsapp/wameow`)
+**nunca se ha conectado a WhatsApp**: emparejar, sincronizar y enviar de verdad
+requieren una autorización separada y una cuenta de ensayo. No hay
+DynamoDB/S3/Lambda. Ningún test usa red, cuentas o números reales.
 
 ## Estructura
 
@@ -13,8 +15,9 @@ test usa red, cuentas o números reales.
 | `cmd/sessions` | CLI con los mismos comandos/flags que el lab, más `selftest`; JSON sin secretos |
 | `internal/contract` | Sobre `envelope.v1`, payloads `whatsapp.pair/sync/send.v1`, `whatsapp.result.v1` y los privados `whatsapp.{pair,send,messages}.private.v1`. Los [JSON Schemas](../src/radar/schemas/) mandan; ver [reglas no aplicadas](#reglas-solo-de-schema) |
 | `internal/whatsapp` | Puertos `Client`, `LeaseStore`, `Ledger`, `SessionStore`, `BlobStore`, `Notifier`; handlers pair/sync/send; fakes en memoria (`fake.go`) |
+| `internal/whatsapp/wameow` | `Client` real sobre whatsmeow + SQLite en Go puro ([diseño](#adaptador-whatsmeow-wameow)) |
 | `internal/schematest` | Solo para tests: compila `src/radar/schemas` con santhosh-tekuri/jsonschema v6.0.3 (como `contracts/validate/go`) |
-| `cmd/whatsapp` | Runner local: un sobre JSON por stdin, un resultado JSON por stdout. Exige `--fake`; sin él responde `unsupported` |
+| `cmd/whatsapp` | Runner local: un sobre JSON por stdin, un resultado JSON por stdout. `--fake` (cliente en memoria) o `--real` con compuerta; sin modo responde `unsupported` |
 
 Decodificación (`contract.Decode` y los `Decode*Private`): máximo 32768 bytes,
 un objeto JSON, sin `null` en ningún nivel, campos desconocidos rechazados,
@@ -91,14 +94,20 @@ resultado producido contra `whatsapp.result.v1` y comprueban que ni texto, ni
 chats, ni teléfonos, ni códigos aparecen en el JSON.
 
 Docker, desde la raíz del repositorio. El contexto incluye solo fuentes Go,
-`src/radar/schemas/*.json` y `contracts/examples/**/*.json`; el build ejecuta
-`go vet` y `go test` con `-mod=readonly`; la imagen final es `scratch`, usuario
-65532, con `/sessions` y `/whatsapp`. El selftest necesita un `/tmp` escribible:
+`src/radar/schemas/*.json` y `contracts/examples/**/*.json`. Solo
+`go mod download && go mod verify` usa red; `go vet`, `go test` y el build corren
+en un paso `RUN --network=none` con `-mod=readonly`, `CGO_ENABLED=0` y
+`GOTOOLCHAIN=local`. La imagen final es `scratch`, usuario 65532, con `/sessions`,
+`/whatsapp` y las raíces TLS de Alpine (`/etc/ssl/certs/ca-certificates.crt`, solo
+para `--real`); ~31.5 MB (antes 11.3 MB, sin whatsmeow/SQLite). El selftest necesita
+un `/tmp` escribible:
 
 ```powershell
-docker build -f go/Dockerfile -t market-radar/b3-go:test .
-docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m --memory 256m --cpus 1 market-radar/b3-go:test
-Get-Content send-envelope.json -Raw | docker run --rm -i --network none --read-only --memory 256m --cpus 1 market-radar/b3-go:test /whatsapp --fake --fake-private '{\"schema_version\":1,\"text\":\"Hola\"}'
+docker build -f go/Dockerfile -t market-radar/b4-go:test .
+docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m --memory 256m --cpus 1 market-radar/b4-go:test
+Get-Content send-envelope.json -Raw | docker run --rm -i --network none --read-only --memory 256m --cpus 1 market-radar/b4-go:test /whatsapp --fake --fake-private '{\"schema_version\":1,\"text\":\"Hola\"}'
+# Compuerta: sin RADAR_WA_REAL_AUTHORIZED=yes responde invalid_input y sale con 1, sin leer stdin
+Get-Content send-envelope.json -Raw | docker run --rm -i --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m market-radar/b4-go:test /whatsapp --real --session-dir /tmp
 ```
 
 (En Git Bash: `MSYS_NO_PATHCONV=1` y comillas simples sin escapar.)
@@ -117,6 +126,89 @@ Get-Content send-envelope.json -Raw | docker run --rm -i --network none --read-o
   habilitado y otro descartado; el resultado trae solo el conteo y el `private_ref`
   del blob efímero (se pierde al terminar el proceso).
 
+## Adaptador whatsmeow (`wameow`)
+
+`wameow.New(ctx, dir)` abre `dir/whatsmeow.db`; `dir` debe existir (en Lambda,
+`/tmp` restaurado desde el blob age; el adaptador nunca elige ubicación) y sin él
+devuelve `ErrNoSessionDir`. `var _ whatsapp.Client = (*Client)(nil)` fija la
+interfaz en compilación.
+
+| Pieza | Decisión |
+|---|---|
+| Store | `sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")` con `modernc.org/sqlite`, luego `sqlstore.NewWithDB(db, "sqlite", waLog.Noop)` + `Upgrade` (que exige foreign keys; `dbutil` acepta cualquier nombre de dialecto que empiece por `sqlite`). Sin CGO; `go list -deps` no incluye `mattn/go-sqlite3` |
+| Connect | `ConnectContext` y espera `events.QR` (sin vincular: el QR se ignora y no se guarda) o `events.Connected` (sesión guardada). Fallo de conexión o `events.ConnectFailure` = `ErrTimeout` |
+| PairPhone | Rechaza una sesión ya vinculada (`ErrAlreadyPaired`). `PairPhone(ctx, phone, true, PairClientChrome, "Chrome (Linux)")` justo después de `Connect`, como pide la doc (~160 s de websocket). `DeviceProps.PlatformType = CHROME`. El código solo va al `Notifier` |
+| WaitPaired | Espera `events.PairSuccess` y devuelve `ID.User` (`types.JID.User`, sin servidor ni dispositivo); luego hasta 30 s por la reconexión que whatsmeow hace tras emparejar |
+| Sync | Espera `events.OfflineSyncCompleted` hasta el deadline (si no: `completed=false`, el worker da `timeout`). Recoge `events.Message` entrantes de texto (`conversation`/`extendedTextMessage.text`); ignora media, propios (`IsFromMe`), estados y listas de difusión. `observed_at` = timestamp del mensaje en UTC. Desconecta **antes** de leer el búfer y usa `SynchronousAck`: lo que llegue después no se confirma y WhatsApp lo reentrega (al menos una vez; puede repetirse). `since` se ignora: la cola offline vive en WhatsApp |
+| Historial | `ManualHistorySyncDownload = true` (nunca se descarga; el recibo se envía igual para que el teléfono no reintente) y `RequireFullSync = false`. `events.HistorySync` no llega y se ignoraría |
+| Chat refs | `wachat:c<24 hex aleatorios>` guardados en la tabla `radar_chat_ref(ref, jid)` dentro del mismo SQLite: viajan con el snapshot cifrado, son estables por chat y no contienen dígitos de teléfono. JID `@lid` se traduce a PN si el store conoce el mapeo. `Send` resuelve ref → JID; ref desconocida = `ErrUnknownChat` sin tocar la red |
+| Send | `SendMessage` con `waE2E.Message{Conversation}`; devuelve `resp.ID` como `provider_message_id` |
+| Errores | `LoggedOut` → `ErrLoggedOut` (`needs_reauth`); `StreamReplaced` → `ErrStreamReplaced` (`session_conflict`); `ConnectFailure` → `ErrTimeout`; `PairError`, `TemporaryBan`, `ClientOutdated` → error genérico (`internal`). El primer evento fatal gana y corta cualquier espera |
+| Snapshot | `Disconnect` y `VACUUM INTO` a un archivo temporal del mismo directorio, que se transmite y se borra: copia consistente de un solo archivo aunque el WAL tenga páginas pendientes o haya goroutines escribiendo. Nunca copia el archivo vivo |
+| Logs | whatsmeow recibe `waLog.Noop`; el paquete no registra nada (ni texto, ni teléfonos, ni JIDs, ni códigos) |
+
+### Dependencias nuevas (fijadas en `go.mod`/`go.sum`)
+
+| Módulo | Versión | Licencia |
+|---|---|---|
+| `go.mau.fi/whatsmeow` | `v0.0.0-20260929112325-8b41cfe6d9c4` (commit `8b41cfe`, 2026-09-29) | MPL-2.0 |
+| `modernc.org/sqlite` | `v1.60.1` | BSD-3-Clause (también `modernc.org/libc`, `memory`, `mathutil`) |
+| `google.golang.org/protobuf` | `v1.36.12` | BSD-3-Clause |
+| `go.mau.fi/libsignal` (transitiva de whatsmeow) | `v0.2.2` | **GPL-3.0** |
+| `go.mau.fi/util` | `v0.10.1` | MPL-2.0 |
+| Resto transitivo: `coder/websocket` (ISC), `rs/zerolog`, `vektah/gqlparser`, `beeper/argo-go`, `elliotchance/orderedmap`, `dustin/go-humanize`, `ncruces/go-strftime`, `mattn/go-isatty`, `mattn/go-colorable` (MIT), `petermattis/goid` (Apache-2.0), `google/uuid`, `remyoudompheng/bigfft`, `filippo.io/edwards25519`, `golang.org/x/*` (BSD-3-Clause) | ver `go.mod` | permisivas |
+
+**Copyleft además de MPL-2.0: `go.mau.fi/libsignal` es GPL-3.0** (fork de
+RadicalApp/libsignal-protocol-go). El código fuente de este repo sigue siendo
+Apache-2.0, pero el binario `/whatsapp` y la imagen enlazan GPL-3.0: distribuirlos
+(imagen pública, ZIP de Lambda compartido) exige cumplir GPL-3.0 para el conjunto
+(fuente correspondiente, licencia). Apache-2.0 es compatible en un sentido con
+GPL-3.0, no al revés. Decisión del propietario pendiente; no es asesoría legal.
+MPL-2.0 es copyleft por archivo: modificar archivos de whatsmeow obliga a publicar
+esos archivos.
+
+### Probado offline frente a pendiente de cuenta autorizada
+
+Offline (`wameow_test.go`, sin red, números sintéticos): compuerta de directorio,
+valores de configuración (nombre `Browser (OS)`, tipo Chrome, sin full sync,
+historial manual, acks síncronos, foreign keys), mapeo evento → sentinel, que el
+primer evento fatal corta `Sync`/`WaitPaired`, extracción de texto desde
+`events.Message` sintéticos (incluye media, propios, estado y dispositivo AD),
+refs estables sin dígitos y aceptadas por `DecodeMessagesPrivate`, resolución
+inversa, `Send` con ref desconocida, deadline de `Sync`, `WaitPaired` con
+`JID.User` de un AD-JID, rechazo de `PairPhone` en sesión vinculada, snapshot de
+un SQLite en WAL sin checkpoint (la copia ingenua del archivo principal no tiene
+las filas; el snapshot sí) y restauración de un snapshot del adaptador en un
+directorio limpio sin `-wal`. `cmd/whatsapp` prueba la compuerta `--real` sin leer
+stdin ni crear archivos. `Connect`, `PairPhone` contra servidor, `Send`,
+`Logout` y el flujo de eventos real **no** se pueden probar sin red: whatsmeow no
+ofrece un servidor falso y no se construyó uno.
+
+Requiere cuenta de ensayo y autorización separada: emparejar por código de verdad
+(formato aceptado del nombre, ventana de ~160 s, reconexión tras `PairSuccess`),
+que `OfflineSyncCompleted` llegue también con cola vacía, sync real y duración,
+envío real e ID devuelto, reconexión tras horas/días, regla de 14 días del
+teléfono principal y límite de 4 dispositivos, `StreamReplaced` en la práctica
+(dos procesos con la misma base), `LoggedOut` al desvincular desde el teléfono,
+mapeo `@lid` ↔ PN con chats reales, y conexiones cortas desde IPs de AWS.
+
+Comando para una futura corrida autorizada (no ejecutado; número y chat de ensayo
+del propietario; el código aparece solo en stderr del operador):
+
+```powershell
+New-Item -ItemType Directory -Force .local\wa-session | Out-Null
+$env:RADAR_WA_REAL_AUTHORIZED = "yes"
+Get-Content pair-envelope.json -Raw | go run ./go/cmd/whatsapp --real --session-dir .local\wa-session --private '{\"schema_version\":1,\"declared_phone\":\"+<número de ensayo>\"}'
+Remove-Item Env:RADAR_WA_REAL_AUTHORIZED
+```
+
+En `--real` el runner sigue usando lease, ledger, sesiones y blobs en memoria: la
+sesión persistente es el `whatsmeow.db` vivo de `--session-dir` (dentro de
+`.local/`, fuera de Git), el snapshot se calcula y se descarta, los mensajes de
+sync quedan cifrados con una identidad efímera (el resultado solo trae el conteo) y
+el ledger `approved` sembrado para send no es una aprobación: la autoriza solo la
+invocación del operador.
+
 ## Reglas solo de schema
 
 Reglas de los JSON Schemas que `internal/contract` **no** aplica a propósito. La
@@ -134,7 +226,7 @@ validación por schema (Python/Node/Go en `contracts/validate`) sigue cubriéndo
 
 | Pieza | Hoy | Pendiente |
 |---|---|---|
-| Cliente WhatsApp | `FakeClient` | Adaptador whatsmeow (`PairPhone`, eventos `OfflineSyncCompleted`/`LoggedOut`/`StreamReplaced`, snapshot SQLite con checkpoint WAL) |
+| Cliente WhatsApp | `FakeClient`; `wameow` compilado y probado offline, nunca conectado | Prueba real con cuenta autorizada; cómo obtiene la app los `chat_ref` para habilitar chats o el primer contacto con un vendedor (el contrato v1 no lo define) |
 | Lease y ledger | `MemLeases`, `MemLedger` | DynamoDB: lease condicional sobre `expires_at`; claim en transacción con la condición del lease |
 | Sesiones | `MemSessions` (CAS de versión) | Snapshot cifrado con `internal/vault`, blob S3 nuevo y puntero `PTR` por CAS |
 | Blobs privados | `MemBlobs`, identidad age efímera en el runner | S3 (escritura condicional), identidad del worker desde SSM, destinatarios de resultados por scope |

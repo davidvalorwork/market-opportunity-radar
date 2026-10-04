@@ -1,5 +1,7 @@
 // Command whatsapp is a local runner: one envelope JSON on stdin, one result JSON on stdout.
-// Only --fake exists; the whatsmeow adapter and DynamoDB/S3 stores are pending.
+// --fake uses the in-memory client. --real wires the whatsmeow adapter and is gated: it
+// refuses unless RADAR_WA_REAL_AUTHORIZED=yes and --session-dir are both given. Leases,
+// ledger, sessions and blobs stay in memory in both modes (DynamoDB/S3 are pending).
 package main
 
 import (
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -18,16 +21,43 @@ import (
 	"radar.local/radar/internal/contract"
 	"radar.local/radar/internal/vault"
 	"radar.local/radar/internal/whatsapp"
+	"radar.local/radar/internal/whatsapp/wameow"
 )
 
 const scope = "worker:whatsapp"
 
-// run handles one envelope. private is the synthetic *.private.v1 JSON the fake world
-// seeds as the blob behind the payload's private_ref (pair and send only).
-func run(fake bool, private string, in io.Reader) contract.Result {
-	if !fake {
-		return contract.Failed(contract.Fail(contract.Unsupported, "real WhatsApp adapter not implemented; use --fake"))
+type opts struct {
+	fake, real bool
+	// private is the *.private.v1 JSON seeded as the blob behind the payload's private_ref (pair and send only).
+	private    string
+	sessionDir string    // --real: existing directory holding whatsmeow.db
+	authorized bool      // RADAR_WA_REAL_AUTHORIZED=yes
+	notify     io.Writer // --real: where the operator reads the pairing code
+}
+
+// termNotifier shows the pairing code to the operator of a local --real run. A deployed
+// worker uses the Telegram notifier; this writer must never be a log sink.
+type termNotifier struct{ w io.Writer }
+
+func (n termNotifier) DeliverCode(_ context.Context, _, code string) error {
+	_, err := fmt.Fprintf(n.w, "pairing code (type it on the phone within ~2 min): %s\n", code)
+	return err
+}
+
+// run handles one envelope. The real-mode gate is checked before stdin is read or any
+// file is created, so a refused run touches neither disk nor network.
+func run(o opts, in io.Reader) contract.Result {
+	switch {
+	case o.fake && o.real:
+		return contract.Failed(contract.Fail(contract.InvalidInput, "choose --fake or --real"))
+	case o.real && !o.authorized:
+		return contract.Failed(contract.Fail(contract.InvalidInput, "real WhatsApp mode refused: RADAR_WA_REAL_AUTHORIZED=yes not set"))
+	case o.real && o.sessionDir == "":
+		return contract.Failed(contract.Fail(contract.InvalidInput, "real WhatsApp mode refused: --session-dir required"))
+	case !o.fake && !o.real:
+		return contract.Failed(contract.Fail(contract.Unsupported, "use --fake, or the gated --real"))
 	}
+	private := o.private
 	data, err := io.ReadAll(io.LimitReader(in, contract.MaxEnvelope+1))
 	if err != nil {
 		return contract.Failed(contract.Fail(contract.InvalidInput, "stdin unreadable"))
@@ -38,10 +68,11 @@ func run(fake bool, private string, in io.Reader) contract.Result {
 	if errors.As(err, &ce) {
 		return contract.Failed(ce)
 	}
-	// Fake world seeded so a synthetic envelope can complete. The seeded ledger record
-	// stands in for an approval made elsewhere; it is not an approval. The identity is
-	// ephemeral, so the seeded blob gets a fresh ciphertext and the fake world rebinds
-	// private_ref.sha256 to it; a real worker never rewrites a private_ref.
+	// Local world seeded so an envelope can complete. The seeded ledger record stands in
+	// for an approval made elsewhere; it is not an approval (in --real the operator's
+	// gated invocation is the only authorization). The identity is ephemeral, so the
+	// seeded blob gets a fresh ciphertext and the runner rebinds private_ref.sha256 to
+	// it; a deployed worker never rewrites a private_ref.
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
 		return contract.Failed(contract.Fail(contract.Internal, "key generation failed"))
@@ -49,7 +80,7 @@ func run(fake bool, private string, in io.Reader) contract.Result {
 	blobs := &whatsapp.MemBlobs{}
 	seed := func(ref *contract.PrivateRef) *contract.Error {
 		if private == "" {
-			return contract.Fail(contract.InvalidInput, "--fake-private is required for pair and send")
+			return contract.Fail(contract.InvalidInput, "--fake-private (or --private) is required for pair and send")
 		}
 		ct, sum, err := vault.SealPrivate([]byte(private), id.Recipient())
 		if err != nil {
@@ -84,10 +115,22 @@ func run(fake bool, private string, in io.Reader) contract.Result {
 		ledger.Records[env.OperationID] = whatsapp.Record{State: whatsapp.Approved, OwnerRef: env.OwnerRef,
 			RecipientRef: p.RecipientRef, ApprovalRef: p.ApprovalRef, ContentSHA256: p.ContentSHA256}
 	}
+	var wc whatsapp.Client = client
+	var notifier whatsapp.Notifier = &whatsapp.FakeNotifier{}
+	owner := "local-fake-runner"
+	if o.real {
+		real, err := wameow.New(context.Background(), o.sessionDir)
+		if err != nil {
+			return contract.Failed(contract.Fail(contract.InvalidInput, "session directory unusable"))
+		}
+		// ponytail: MemSessions drops the snapshot; locally the live whatsmeow.db in
+		// --session-dir is the state. Lambda will seal the snapshot to S3 instead.
+		wc, notifier, owner = real, termNotifier{o.notify}, "local-real-runner"
+	}
 	w := &whatsapp.Worker{
-		Client: client, Leases: &whatsapp.MemLeases{}, Ledger: ledger,
+		Client: wc, Leases: &whatsapp.MemLeases{}, Ledger: ledger,
 		Sessions: &whatsapp.MemSessions{Versions: map[string]int{env.SessionRef: env.ExpectedVersion}},
-		Notifier: &whatsapp.FakeNotifier{}, Owner: "local-fake-runner", LeaseTTL: 5 * time.Minute,
+		Notifier: notifier, Owner: owner, LeaseTTL: 5 * time.Minute,
 		Blobs: blobs, Identity: id, Scope: scope, ResultRecipients: []*age.X25519Recipient{id.Recipient()}, ResultScope: scope,
 	}
 	return w.Handle(context.Background(), env, payload)
@@ -96,11 +139,15 @@ func run(fake bool, private string, in io.Reader) contract.Result {
 func main() {
 	f := flag.NewFlagSet("whatsapp", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
-	fake := f.Bool("fake", false, "use the in-memory fake WhatsApp client (required)")
-	private := f.String("fake-private", "", "synthetic *.private.v1 JSON seeded behind private_ref (pair/send)")
+	o := opts{notify: os.Stderr, authorized: os.Getenv("RADAR_WA_REAL_AUTHORIZED") == "yes"}
+	f.BoolVar(&o.fake, "fake", false, "use the in-memory fake WhatsApp client")
+	f.BoolVar(&o.real, "real", false, "use the whatsmeow adapter (needs RADAR_WA_REAL_AUTHORIZED=yes and --session-dir)")
+	f.StringVar(&o.sessionDir, "session-dir", "", "existing directory holding whatsmeow.db (--real)")
+	f.StringVar(&o.private, "fake-private", "", "synthetic *.private.v1 JSON seeded behind private_ref (pair/send)")
+	f.StringVar(&o.private, "private", "", "alias of --fake-private for --real")
 	r := contract.Failed(contract.Fail(contract.InvalidInput, "invalid arguments"))
 	if f.Parse(os.Args[1:]) == nil && f.NArg() == 0 {
-		r = run(*fake, *private, os.Stdin)
+		r = run(o, os.Stdin)
 	}
 	json.NewEncoder(os.Stdout).Encode(r)
 	if r.Status != contract.StatusSucceeded {
