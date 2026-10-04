@@ -19,9 +19,20 @@ Ver [revisión final A](research/architecture-final-review.md),
 | `sessions-admin` local | Go + age | Preparar/renovar estado exportado explícitamente; no extraer cookies ni autenticar automáticamente |
 
 Telegram es la **única interfaz de producto del MVP**. El CLI local administra
-sesiones y pruebas; no es segunda UI comercial. Dashboard/Mini App y otras
-verticales quedan fuera. Productos es la primera vertical; nombres como Entity,
-Signal y Opportunity se introducen por casos concretos, no como framework universal.
+sesiones y pruebas; no es segunda UI comercial. Dashboard/Mini App e interfaces
+comerciales adicionales quedan fuera por ahora. El usuario confirmó
+un núcleo general de pedidos, hallazgos, contactos y comunicaciones. Productos
+es un módulo opcional ya ensayado; talleres/Cashea no condicionan el router ni
+las fuentes. Ver [plan vigente](GENERAL_TASKS.md): prevalece sobre la restricción
+histórica de implementar únicamente productos, sin fingir nuevos conectores.
+
+El router selecciona operaciones registradas y campos solicitados por el pedido,
+no una cadena obligatoria de cotizaciones. Fuente y canal de salida son ejes
+independientes: un hallazgo web puede motivar una consulta WhatsApp autorizada.
+Cada adaptador declara capacidades separadas (buscar, leer, extraer, enviar,
+sincronizar) y salud por cuenta; tener cookies no prueba acceso o autorización.
+LLM opcional para interpretación/ambigüedad, nunca dueño del presupuesto,
+los permisos ni el bucle. Especificación general pendiente de implementación.
 
 ## Flujo durable previsto
 
@@ -41,7 +52,7 @@ Telegram -> bot -> transacción: receipt + command + outbox
                                               |
                                     results Standard -> app
                                               |
-                           normalizar/comparar/estimar -> Telegram
+                    normalizar/informar/contactar según pedido -> Telegram
 ```
 
 Baseline de **cuatro colas de trabajo** más sus DLQ. R1 es un experimento:
@@ -118,7 +129,7 @@ lab/                         fixtures y benchmarks actuales preservados
 ```
 
 Dominio no importa SDKs/red/adaptadores; aplicación usa dominio y puertos.
-Workers no recalculan reglas comerciales. El laboratorio queda intacto como
+Workers no deciden el propósito ni recalculan reglas temáticas. El laboratorio queda intacto como
 baseline fixture-only; no abrir sus guardas para declarar una prueba real como fixture.
 
 ## Eficiencia, seguridad y costo

@@ -38,7 +38,19 @@ Este registro distingue límites de trabajo acordados de alternativas provisiona
 | R-031 | Incremento local A3 probado, pendiente de revisión/integración | SQLite durable y webhook B2/B2b con consentimiento/directorio/allowlist/worker/UI falsos, snapshots de búsqueda, presupuestos y resultados con evidencia; intents locales tipados separados del transporte v1 | UnitOfWork parcial; acciones wire rechazadas sin mutación hasta age/proveedor verificado. Acciones simuladas prueban roles/leases/crashes/proof independiente; no fencing del proveedor real. R1/AWS/Go real pendientes |
 | R-032 | Correcciones A3 a revisión B, pruebas locales | Revocación separada del consentimiento; Directory solo devuelve actores habilitados. Cuarentena owner/message durable antes del ACK para una allowlist explícita de rechazos terminales; errores desconocidos y fallos de persistencia/crash siguen visibles | Repro determinista inicial: `pytest -q tests/flow/test_review_regressions.py` produjo 18 fallos; las correcciones cubren los mismos caminos reales SQLite/webhook. Cuota por owner, UTC de seis decimales, cancel terminal no-op y conexión serializada también corregidos. No autoriza merge/push, DLQ AWS ni efectos reales |
 
+## G-001 — Alcance general confirmado por el usuario, 2026-10-03
+
+El pedido actual amplía y sustituye la restricción temática de R-027/R3:
+asistente general para buscar información y contactos publicados pertinentes,
+navegar fuentes autorizadas, enviar comunicaciones aprobadas y seguir respuestas
+sobre cualquier tema. Talleres, Cashea, perfumes, empleos y productos son ejemplos
+o módulos opcionales, no campos obligatorios del núcleo. Dirección detallada en
+[GENERAL_TASKS](../GENERAL_TASKS.md). No cambia la titularidad de contratos B,
+versiones publicadas ni autoriza automáticamente cuentas, cloud o efectos reales.
+R-027 se conserva como decisión histórica, no como restricción temática vigente.
+
 ## Adopción de B-D061–B-D064 — A0, 2026-10-03
+
 
 | ID de B | Estado integrado por A | Límite |
 |---|---|---|

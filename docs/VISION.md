@@ -1,5 +1,30 @@
 # Visión de producto
 
+## Alcance vigente — confirmado 2026-10-03
+
+Asistente general que recibe pedidos por Telegram sobre cualquier tema y puede
+buscar, navegar, extraer información/contactos publicados pertinentes, preparar
+mensajes, ejecutar contactos aprobados y seguir respuestas. No está enfocado en
+talleres, perfumes, productos, una ciudad o un medio de pago. El apartado
+comercial siguiente describe un módulo opcional, no el alcance universal.
+
+Fuentes y canales extensibles: web abierta, Facebook/Marketplace/Messenger, X,
+Instagram, Threads, Reddit, WhatsApp y otros con capacidades verificadas. No se
+promete que cada plataforma soporte búsqueda, lectura y mensajes, ni que una
+cookie sirva para todas. Sesiones explícitas por propietario/cuenta/plataforma,
+preflight y renovación segura. Ver [plan general](GENERAL_TASKS.md).
+
+Ejemplos: investigar un tema con fuentes; encontrar proveedores de cualquier
+servicio; localizar contactos publicados pertinentes y hacerles una consulta
+aprobada; resumir/responder conversaciones habilitadas; comparar productos;
+programar una búsqueda. Ningún ejemplo introduce campos obligatorios globales.
+
+Este cambio confirma la dirección de producto, no habilita conectores reales,
+envíos ni infraestructura. Las capacidades existentes y pendientes se registran
+en BOARD; el módulo comercial y el laboratorio se conservan sin reescritura.
+
+## Módulo opcional: oportunidades comerciales
+
 ## Problema
 
 Los revendedores comparan anuncios dispersos, monedas distintas y condiciones
@@ -47,7 +72,8 @@ sintético y explícito; un piloto con una persona requiere consentimiento y dat
 
 ## Fuera de alcance inicial
 
-- Comprar, pagar, reservar, vender, contactar vendedores o publicar anuncios.
+- Comprar, pagar, reservar, vender o publicar anuncios sin encargo específico.
+- Contactar terceros sin encargo/aprobación aplicable o prometer todos los canales funcionando.
 - Acceder a grupos privados sin permisos, evadir bloqueos o automatizar logins.
 - Verificar autenticidad de perfumes/relojes a partir de una fotografía solamente.
 - Garantizar demanda, beneficios, cobertura universal o asesoría fiscal/aduanera.

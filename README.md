@@ -1,6 +1,43 @@
 # Market Opportunity Radar
 
-**Radar global de oportunidades de compra, venta y reventa con evidencia trazable.**
+**Asistente general de búsqueda, investigación y contacto multicanal con evidencia trazable.**
+
+Alcance aclarado por el usuario el 2026-10-03: recibir pedidos sobre cualquier
+tema, buscar información y contactos publicados pertinentes, navegar fuentes
+autorizadas, preparar comunicaciones, enviar las aprobadas y seguir respuestas.
+Productos, perfumes, talleres y Cashea son ejemplos, no filtros obligatorios.
+Ver [alcance general y plan vigente](docs/GENERAL_TASKS.md). El nombre del repo
+se conserva; el nuevo alcance no implica capacidades ya implementadas.
+
+Registro de fuentes previsto: web abierta, Facebook/Marketplace/Messenger, X,
+Instagram, Threads, Reddit y otros adaptadores que se vayan verificando. Cookies
+o sesiones proporcionadas explícitamente se gestionan por cuenta/plataforma;
+no garantizan acceso ni soporte universal. Cada operación requiere capacidad
+comprobada, permisos y preflight. Mensajería real no está activada por este cambio.
+
+## Modo general: información, chats y respuestas
+
+El núcleo admite pedidos sobre cualquier tema: buscar y contrastar información,
+leer conversaciones habilitadas, preparar respuestas, contactar a destinatarios
+autorizados y programar tareas. «Lee mis chats», «responde esto» e «investiga este
+tema y responde» son ejemplos de lenguaje natural, no comandos ya disponibles
+en todas las cuentas. La investigación puede abrirse en cualquier etapa ante un
+dato faltante o una nueva pregunta, conservando la tarea y evidencia vigentes.
+Una respuesta literal dictada por el propietario no obliga a buscar ni usar IA.
+
+Flujo previsto: pedido → plan y preflight → lectura/investigación según necesidad
+→ informe o borrador contextual → aprobación del texto/destinatario aplicable
+→ acción por canal verificado → recepción y seguimiento. Productos y talleres
+no son campos obligatorios. Mensajes y páginas externas aportan datos, no órdenes.
+
+Los candidatos A16/A18/A19 tienen pruebas locales de composición, persistencia,
+privacidad, presupuestos y lectura HTTP/DNS acotados. Son ramas de preparación,
+no un bot desplegado ni soporte social universal. Selección automática de
+«esto/aquello», clasificación de chats pendientes, filtro «hoy», cuentas y fuentes
+reales siguen pendientes. Estado y revisión por entrega en el tablero principal;
+un snapshot de worktree no sustituye ese registro.
+
+## Módulo opcional: oportunidades comerciales
 
 Busca ofertas y solicitudes de compra en tiendas, mayoristas, marketplaces y redes
 sociales; compara productos realmente equivalentes y estima el margen después de
@@ -11,11 +48,13 @@ Global product sourcing and resale intelligence: discover listings across the op
 web and social channels, match equivalent products, and estimate cost-aware margins
 with source evidence. Local-first, configurable and designed around Agent Reach.
 
-**Estado: dominio y primer flujo local sintético, 2026-10-03.** A1/A2/A0b están
-integradas localmente; A3 añade un incremento en su rama para revisión: webhook
-Telegram real con directorio falso, SQLite durable, cola/worker/UI falsos y
+**Estado: preparación local, 2026-10-04.** A1/A2/A0b están
+integradas localmente; A3 añade un incremento en su rama para revisión: implementación
+del webhook Telegram con updates/directorio sintéticos, SQLite durable, cola/worker/UI falsos y
 comparación de registros con evidencia. Incluye también el laboratorio Docker
 y el CLI de sesiones cifradas. No hay buscador comercial ni fuente real verificada.
+Esta rama A0g incorpora A3 sólo para conciliar documentación y probar preparación;
+no integra A3 en `main` ni sustituye su revisión B pendiente.
 No hay campañas, compras, ventas, mensajes o ganancias reales generadas por este
 proyecto. No es Job Radar ni una demo de facturas. La implementación A/B empieza
 por contratos, dominio y flujo local; ver [tablero](docs/work/BOARD.md),
@@ -78,8 +117,9 @@ Revisión humana e informes por Telegram (previstos)
 ```
 
 Una corrida podrá detenerse y reanudarse. Las fuentes bloqueadas no se contarán
-como búsquedas exitosas ni como mercados sin ofertas. No se comprarán productos,
-contactarán vendedores ni publicarán anuncios automáticamente.
+como búsquedas exitosas ni como mercados sin ofertas. Hallar un contacto no
+autoriza un envío: contactar exige encargo, destinatario/texto aprobados y canal
+verificado. Compras, pagos y publicaciones requieren un encargo separado.
 
 ## Qué tendrá cada oportunidad
 
@@ -142,9 +182,8 @@ exactly-once. Ningún componente cloud está instalado o desplegado por A0.
 HTTP permitido primero, navegador como respaldo y cuotas por dominio/cuenta.
 R1 (comandos directo desde Streams) se probará antes de retirar `commands.fifo`;
 la topología baseline conserva cuatro colas. Concurrencia/presupuesto limitan
-consumo, no garantizan USD 0. Productos es la única vertical a implementar ahora;
-nombres generales (`Entity`, `Signal`, `Opportunity`) desde el primer commit;
-solo productos ahora, otras verticales pendientes y sin framework universal.
+consumo, no garantizan USD 0. El alcance general confirmado separa pedidos,
+hallazgos, contactos y comunicaciones de las reglas opcionales de productos.
 Telegram es la UI única del MVP; dashboard/Mini App y vectores quedan posteriores.
 
 La calidad se medirá sobre productos y oportunidades comerciales: equivalencias
