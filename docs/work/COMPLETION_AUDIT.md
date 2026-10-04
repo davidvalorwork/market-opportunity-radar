@@ -96,6 +96,12 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   docs verdes en venv del lock A15. Es convivencia del código fuente y sus
   interoperaciones ensayadas, no revisión B, main integrado, factory/bot real,
   wheel de este árbol ni end-to-end operativo de todas las redes.
+- El mismo árbol `4968c198` fue después construido e instalado offline en un
+  target nuevo: imports desde `installed/radar`, **23 schemas**, pytest con
+  `-o pythonpath=` y sin source en PYTHONPATH: **975 + 246 subtests** (86.59 s),
+  cero skips/fallos. Ahora sí comprueba el wheel de esa combinación; no empaqueta
+  binarios Go ni demuestra instalación/uso de cuentas. Helper A14 observado
+  también por el coordinador: `go test -count=1` (0.435 s) y vet offline verdes.
 
 ## Cierre por entrega
 
