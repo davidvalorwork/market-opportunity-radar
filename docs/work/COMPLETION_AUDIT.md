@@ -146,6 +146,26 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   intactos. No acredita instalación Go en Linux/CI, DNS previo, Internet ni AWS.
   Implementador reportó suite943 + 246 y microbenchmark151800recv→42 con
   buffer4096; root no presenta ese reporte como benchmark independiente.
+- A18 congelada `9a60150`, A16 final integrado. Implementador reportó
+  **1091 + 251 subtests** (279.15 s), área57/57, Node234/234/24schemas y Go.
+  Coordinador combinó A18+A17 en snapshot privado `2c588f7`, árbol `471a124`:
+  **1164 + 251 subtests** (286.79 s), sin fallos/skips; docs y CLI fixture
+  IA0/red0/envíos0/partial. Node golden independiente234/234/24schemas y Go
+  validator/vet offline (0.654 s). La investigación contextual puede abrirse
+  ante un nuevo mensaje dentro de la misma tarea, reutilizar evidencia y dejar
+  un borrador A10 exacto. Literal no reserva tokens/USD API; no significa costo
+  computacional cero. Incertidumbre bloqueada, reservas compartidas calls CAS,
+  sin reenviar ni sintetizar ficticiamente. Selección natural «esto/aquello»,
+  clasificador requiere-respuesta y filtro temporal «hoy» no están implementados.
+- A19 congelada `a2d4687`: implementador49/49, full992 +246(105.72 s), Go/vet.
+  Coordinador **49/49** (25.14 s) en snapshot combinado privado `c04fde1`, árbol
+  `b5972e7`, que incluye A18/A17 y CI `abc044d`; docs verdes. Go stdlib test/vet
+  independiente (0.621 s) sin descargas. DNS UDP loopback real, cleanup/plazo
+  residual/concurrencia; no DNS Internet, RSS de proceso, prueba POSIX ni fuente
+  real. Metadatos DNS quedan separados del presupuesto HTTP y no crean permisos.
+  El wheel de ese snapshot fue construido/instalado offline en target nuevo;
+  import de contextual/HTTP/DNS procede del target y contiene24schemas.
+  **La suite completa contra ese wheel sigue en curso**, no es aún resultado.
 
 ## Cierre por entrega
 
@@ -171,8 +191,8 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | A15 | Calendario IANA disponible en runtime/lock Windows | Candidato `4c5e4be` cierra fallo de dependencia en venv nuevo; 6/6 calendario real y combinación975 + 246. Main/integración/revisión pendientes |
 | A16 | Telegram → pasos generales durables → investigación/contacto/conversaciones/scheduler | Candidato a703849 cierra false-success de e7c19fa; root59/59/CLI0IA0red0envíos, implementador1034 +246. Estados desconocidos/uncertain bloqueados, replay sin segundo handler y pantalla previa sin aprobación tras bloqueo. A18, control UI/extracción general/revisión/integración faltan. Inboxcache20 sin temporal/cursor; no bot real |
 | A17 | HTTP público real conforme a A8 | Candidato69aeae0, coordinador73/73 Windows y73/73 Linux. Transporte pin/TLS/peer/stream/deadline/cancel acotado verificado sintéticamente. DNS previo/capacidades/factory/fuentes reales, revisión/integración siguen pendientes; no cookies ni búsqueda social/CLI/browser |
-| A18 | Investigación contextual y respuesta general durante cualquier etapa | En desarrollo aislado; A10 contexto exacto → evidencia A8/A9 → composición privada y reasoner opcional con presupuesto. Nuevo schema candidato sujeto a B; pruebas, wiring A16 y revisión aún pendientes. Literal dictado no obliga a búsqueda ni IA; no inbox o modelo real acreditado |
-| A19 | DNS previo a HTTP bajo plazo/cancelación del pedido | Iniciado en rama aislada sobre A17, adapter host y helper stdlib sin editar A8/B. Debe probar deadline residual DNS+HTTP, cleanup y aislamiento concurrente; sigue pendiente, no conexión DNS Internet ni capacidad externa demostrada |
+| A18 | Investigación contextual y respuesta general durante cualquier etapa | Candidato9a60150; rootjointA18+A17 1164 +251, Node234/234/24schemas y Go. Contexto exacto/evidencia→borrador, calls compartidas CAS y literal sin tokens/USD API ficticios. Schema/prompt sujetos a B; factory/inbox/modelo/fuentes reales y selección NL/clasificador/hoy pendientes. Wheeljoint en curso |
+| A19 | DNS previo a HTTP bajo plazo/cancelación del pedido | Candidatoa2d4687; root49/49 en snapshotjointc04fde1 y Go stdlib/vet. DNS loopback/plazo residual/cleanup/aislamiento comprobados en Windows; suite wheeljoint en curso, POSIX/revisión/factory/capacidades reales pendientes. No DNS Internet ni activación implícita |
 | A5/F7 | DynamoDB/S3/SQS/SSM, conformidad local, outbox/reparación; experimento R1 | No implementada; depende A3. Pruebas con emuladores/moto no sustituyen AWS real |
 | F8 | SAM build/local invoke, IAM/timeout/visibilidad/concurrencia/DLQ | Pendiente; infraestructura local verificable antes de autorización para desplegar |
 | F9 | Threat model, stop/borrado/export, privacidad y revisión aplicable | Consentimiento parcial implementado. Borrado/logout/retención y revisión requerida para colaboradores no constatados |
