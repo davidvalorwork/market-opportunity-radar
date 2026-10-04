@@ -79,6 +79,12 @@ type SessionStore interface {
 	Save(ctx context.Context, sessionRef string, expected int, snapshot []byte) (version int, err error)
 }
 
+// BlobStore holds immutable age-encrypted private payload blobs (S3 later). Get returns ErrNotFound for a missing key.
+type BlobStore interface {
+	Put(ctx context.Context, key string, ciphertext []byte) error
+	Get(ctx context.Context, key string) ([]byte, error)
+}
+
 // Notifier delivers the pairing code to the user (Telegram with protect_content later). Never log the code.
 type Notifier interface {
 	DeliverCode(ctx context.Context, notifyRef, code string) error
