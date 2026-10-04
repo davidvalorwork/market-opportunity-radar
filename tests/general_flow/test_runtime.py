@@ -255,6 +255,127 @@ def test_expired_worker_neither_checkpoints_nor_clobbers_successor(assembly):
     assert runtime.outputs(OWNER,status[0])['read']=={'winner':'successor'}
 
 
+@pytest.mark.parametrize('returned_state',['uncertain','send_uncertain','completed','',None,{'state':'succeeded'}])
+def test_handler_unknown_state_is_blocked_never_success_and_not_replayed(assembly,returned_state):
+    runtime=assembly['runtime']
+    calls=[]
+    def handler(**kwargs):
+        calls.append(1)
+        return {'must_not_checkpoint':MARKER},returned_state,None
+    runtime.handlers['compose']=handler
+    proposal=accept(assembly,request(steps=[{'step_id':'draft','operation':'compose','arguments':{}}]))
+    confirm(assembly,proposal)
+    assert runtime.pump(OWNER,ACTOR)==1
+    status=runtime.status(OWNER,ACTOR)[0]
+    assert status[2]=='blocked'
+    state,reason=assembly['store'].db.execute('SELECT state,reason FROM general_steps').fetchone()
+    assert (state,reason)==('blocked','handler_state_invalid')
+    assert runtime.pump(OWNER,ACTOR)==0 and calls==[1]
+    assert not assembly['dispatcher'].deliveries
+
+
+@pytest.mark.parametrize('state',['succeeded','partial','pending','awaiting_approval','blocked'])
+def test_documented_handler_states_preserve_reservation_and_private_checkpoint(assembly,state):
+    runtime=assembly['runtime']
+    runtime.handlers['inform']=lambda **kwargs:({'fixture_ref':'fixture:allowed'},state,'fixture_result')
+    proposal=accept(assembly,request(steps=[{'step_id':'report','operation':'inform','arguments':{}}]))
+    confirm(assembly,proposal)
+    assert runtime.pump(OWNER,ACTOR)==1
+    actual,pointer,reason=assembly['store'].db.execute('SELECT state,pointer,reason FROM general_steps').fetchone()
+    assert (actual,reason)==(state,'fixture_result')
+    assert runtime.open(OWNER,pointer)=={'fixture_ref':'fixture:allowed'}
+    assert assembly['store'].db.execute('SELECT calls FROM general_runs').fetchone()[0]==1
+
+
+@pytest.mark.parametrize('diagnostic',[MARKER,'email@example.org','PRIVATE '+MARKER,'x'*65,{'message':MARKER}])
+def test_external_reason_cannot_enter_control_rows(assembly,diagnostic):
+    runtime=assembly['runtime']
+    runtime.handlers['read']=lambda **kwargs:({},'succeeded',diagnostic)
+    proposal=accept(assembly,request(steps=[{'step_id':'read','operation':'read','arguments':{'source_refs':['source:articles']}}]))
+    confirm(assembly,proposal)
+    runtime.pump(OWNER,ACTOR)
+    assert runtime.status(OWNER,ACTOR)[0][2]=='blocked'
+    assert assembly['store'].db.execute('SELECT reason FROM general_steps').fetchone()[0]=='handler_reason_invalid'
+    assert MARKER not in repr(assembly['store'].db.execute('SELECT * FROM general_steps').fetchall())
+
+
+@pytest.mark.parametrize('where',['interpreter','handler'])
+def test_external_general_error_is_not_persisted_as_control_reason(assembly,where):
+    runtime=assembly['runtime']
+    def poisoned(**kwargs):
+        raise GeneralError(MARKER)
+    poisoned.deterministic=True
+    if where=='interpreter':
+        runtime.interpreter=poisoned
+        body=json.dumps(message(1,'/pedir '+json.dumps(request()))).encode()
+        assembly['wiring'].webhook.handle_update({'X-Telegram-Bot-Api-Secret-Token':SECRET},body)
+        runtime.ingest(OWNER)
+        assert assembly['store'].db.execute('SELECT reason FROM general_inputs').fetchone()[0]=='handler_reason_invalid'
+    else:
+        runtime.handlers['inform']=poisoned
+        proposal=accept(assembly,request(steps=[{'step_id':'report','operation':'inform','arguments':{}}]))
+        confirm(assembly,proposal)
+        runtime.pump(OWNER,ACTOR)
+        assert runtime.status(OWNER,ACTOR)[0][5]=='handler_reason_invalid'
+    assert MARKER not in repr(assembly['store'].db.execute('SELECT * FROM general_runs').fetchall())
+    assert MARKER not in repr(assembly['store'].db.execute('SELECT * FROM general_inputs').fetchall())
+
+
+def test_unknown_effect_state_checkpoint_crash_recovers_uncertain_without_retry(assembly):
+    runtime=assembly['runtime']
+    calls=[]
+    def handler(**kwargs):
+        calls.append(1)
+        return {'contextual_ref':'contextual:fixture'},'uncertain','model_outcome_uncertain'
+    runtime.handlers['compose']=handler
+    proposal=accept(assembly,request(steps=[{'step_id':'draft','operation':'compose','arguments':{}}]))
+    confirm(assembly,proposal)
+    def crash(stage):
+        if stage=='general_step_checkpoint':
+            raise RuntimeError('synthetic crash after result validation')
+    assembly['store'].failpoint=crash
+    with pytest.raises(RuntimeError):
+        runtime.pump(OWNER,ACTOR)
+    assembly['store'].failpoint=lambda stage:None
+    runtime.pump(OWNER,ACTOR)
+    assert runtime.status(OWNER,ACTOR)[0][2]=='blocked'
+    assert assembly['store'].db.execute('SELECT reason FROM general_steps').fetchone()[0]=='step_outcome_uncertain'
+    assert calls==[1] and not assembly['dispatcher'].deliveries
+
+
+def test_existing_unknown_checkpoint_never_becomes_success_on_replay(assembly):
+    runtime=assembly['runtime']
+    proposal=accept(assembly,request(steps=[{'step_id':'draft','operation':'compose','arguments':{}}]))
+    confirm(assembly,proposal)
+    assembly['store'].db.execute("UPDATE general_steps SET state='uncertain'")
+    assert runtime.pump(OWNER,ACTOR)==0
+    assert runtime.status(OWNER,ACTOR)[0][2]=='blocked'
+    assert assembly['store'].db.execute('SELECT reason FROM general_steps').fetchone()[0]=='step_state_invalid'
+
+
+def test_invalid_state_rolls_back_checkpoint_and_cannot_authorize_draft_effect(assembly):
+    runtime=assembly['runtime']
+    pointer=runtime.vault.seal(owner_ref=OWNER,plaintext=json.dumps({'account_ref':'account:fixture','drafts':[{'chat_ref':'chat:fixture','text':MARKER,'purpose_ref':'purpose:invalidstate'}]}).encode())
+    proposal=accept(assembly,request(steps=[{'step_id':'draft','operation':'compose','arguments':{'private_ref':asdict(pointer)}}]))
+    confirm(assembly,proposal)
+    calls=[]
+    original=runtime.execute
+    def wrapped(authority,run,task,step,request,outputs,attempt):
+        result,state,reason=original(authority,run,task,step,request,outputs,attempt)
+        calls.append(result)
+        return result,'uncertain','model_outcome_uncertain'
+    runtime.execute=wrapped
+    runtime.pump(OWNER,ACTOR)
+    assert runtime.status(OWNER,ACTOR)[0][2]=='blocked'
+    assert assembly['store'].db.execute('SELECT calls FROM general_runs').fetchone()[0]==1
+    assert runtime.outputs(OWNER,runtime.status(OWNER,ACTOR)[0][0])=={}
+    with pytest.raises(GeneralError,match='run_inactive_or_expired'):
+        runtime.callback(OWNER,ACTOR,calls[0]['approval_ref'],event_ref='event:invalidapprove')
+    with pytest.raises(GeneralError,match='run_inactive_or_expired'):
+        runtime.dispatch_fixture(OWNER,ACTOR,calls[0]['batch_ref'])
+    assert not assembly['dispatcher'].deliveries
+
+
 def test_approval_crash_after_a10_commit_replays_without_second_message(assembly):
     runtime=assembly['runtime']
     pointer=runtime.vault.seal(owner_ref=OWNER,plaintext=json.dumps({'account_ref':'account:fixture','drafts':[{'chat_ref':'chat:fixture','text':MARKER,'purpose_ref':'purpose:reply'}]}).encode())
