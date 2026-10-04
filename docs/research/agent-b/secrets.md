@@ -21,8 +21,8 @@ repositorio, al chat ni a logs.
 
 | Secreto | Ubicación | Lo lee | Estado |
 |---|---|---|---|
-| Clave de OpenRouter | **Reutilizada de inventarioIA**: `/inventarioia/openrouter_api_key` (`SecureString`, versión 1, `us-east-1`; metadatos verificados el 2026-10-03 sin descifrar) | Función `app` (puerto LLM, tarea B6) | Configurable con `RADAR_OPENROUTER_KEY_PARAM` |
-| Token del bot de Telegram | **Reutilizado de inventarioIA por pedido del usuario** (2026-10-03): `/inventarioia/telegram_token` (`SecureString`, versión 1, `us-east-1`, metadatos verificados) | `bot`, `app` (envíos) | Configurable con `RADAR_TELEGRAM_TOKEN_PARAM`; ver conflicto de webhook abajo |
+| Clave de OpenRouter | `/market-radar/openrouter_api_key` (`SecureString`, versión 1, `us-east-1`). Copiada de `/inventarioia/openrouter_api_key` el 2026-10-03, de servidor a servidor y sin mostrar el valor; igualdad verificada por hash | Función `app` (puerto LLM, tarea B6) | `RADAR_OPENROUTER_KEY_PARAM=/market-radar/openrouter_api_key` |
+| Token del bot de Telegram | `/market-radar/telegram_token` (`SecureString`, versión 1, `us-east-1`). Mismo bot de inventarioIA, copiado de `/inventarioia/telegram_token` el 2026-10-03 sin mostrar el valor; igualdad verificada por hash | `bot`, `app` (envíos) | `RADAR_TELEGRAM_TOKEN_PARAM=/market-radar/telegram_token` |
 | Secreto del webhook de Telegram | Propio del radar: `/market-radar/telegram_webhook_secret` (inventarioIA tiene el suyo en `/inventarioia/telegram_webhook_secret`) | `bot` | Se genera al registrar el webhook del radar (`secrets.token_urlsafe(32)`) |
 | Lista blanca por teléfono | Local: `.local/allowlist.json` (ignorado por Git). AWS futuro: `/market-radar/allowlist_phones` (`SecureString`) | `bot` (solo para comparar al compartir contacto) | Creada en local con **un único número, rol dueño**; el número no aparece en el repositorio |
 | Identidad age del worker WhatsApp | `/market-radar/age/worker-whatsapp` | `whatsapp` | Por generar con `sessions keygen` |
@@ -37,19 +37,19 @@ cifrada, sin escribirla en disco. Sus Lambdas la leen con `ssm:GetParameter`
 `WithDecryption=True` (`src/common/python/config.py`, prefijo `SSM_PREFIX`
 por defecto `/inventarioia`).
 
-**Uso en el radar, sin copiar el secreto:**
+**Uso en el radar** (desde el 2026-10-03 apunta a la copia propia del radar):
 
-- Configuración: `RADAR_OPENROUTER_KEY_PARAM=/inventarioia/openrouter_api_key`.
+- Configuración: `RADAR_OPENROUTER_KEY_PARAM=/market-radar/openrouter_api_key`.
   Para cambiar a una clave propia basta con cambiar el nombre del parámetro.
 - IAM de la función `app` (plantilla SAM, dueño A): `ssm:GetParameter` sobre
-  `arn:aws:ssm:us-east-1:<cuenta>:parameter/inventarioia/openrouter_api_key`
+  `arn:aws:ssm:us-east-1:<cuenta>:parameter/market-radar/openrouter_api_key`
   (solo ese ARN) y `kms:Decrypt` con la condición `kms:ViaService`, igual que
   la plantilla de inventarioIA.
 - En local, solo cuando haga falta una prueba real autorizada, se carga en la
   variable del proceso sin imprimirla ni guardarla:
 
   ```bash
-  export OPENROUTER_API_KEY="$(aws ssm get-parameter --region us-east-1 --name /inventarioia/openrouter_api_key --with-decryption --query Parameter.Value --output text)"
+  export OPENROUTER_API_KEY="$(aws ssm get-parameter --region us-east-1 --name /market-radar/openrouter_api_key --with-decryption --query Parameter.Value --output text)"
   ```
 
   Los tests usan un cliente falso y no la necesitan.
@@ -95,8 +95,11 @@ Git).
 - **Decisión del usuario (2026-10-03): opción 1.** El radar se queda con el bot;
   inventarioIA se va a borrar y no importa que pierda Telegram. Al registrar el
   webhook del radar (F10), el webhook actual de inventarioIA queda reemplazado.
-- **Antes de borrar inventarioIA (`inf`, requiere autorización para escribir en
-  AWS):** el radar depende de `/inventarioia/telegram_token` y
+- **Hecho (2026-10-03, "nos apropiaremos de sus credenciales nada más"):** los
+  dos secretos se copiaron a `/market-radar/*` y el radar ya no depende de
+  `/inventarioia/*`. inventarioIA, incluidos sus parámetros, puede borrarse sin
+  afectar al radar. No se tomó nada más de inventarioIA: ni el secreto del
+  webhook, ni la lista de chats, ni código. Contexto previo: el radar depende de `/inventarioia/telegram_token` y
   `/inventarioia/openrouter_api_key`. Borrar esos parámetros junto con
   inventarioIA dejaría al radar sin bot y sin IA. Hay dos caminos:
   - Copiar los dos valores a `/market-radar/telegram_token` y
