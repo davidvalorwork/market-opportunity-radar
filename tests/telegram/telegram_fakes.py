@@ -8,12 +8,17 @@ the same behaviour.
 from datetime import datetime, timezone
 import json
 
+from radar.adapters.telegram.allowlist import PhoneAllowlist
 from radar.adapters.telegram.consent import CONSENT_VERSION
 from radar.adapters.telegram.webhook import Webhook, hash_invite_code
 
 SECRET = "synthetic-webhook-secret_0123456789"
 OWNER_ID, COLLAB_ID, STRANGER_ID = 900000001, 900000002, 900000003
 NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+# Synthetic numbers only (+1 000... is not assignable); never put a real number in this public repo.
+OWNER_PHONE, COLLAB_PHONE, UNLISTED_PHONE = "+10000000000", "+10000000001", "+10000000009"
+ALLOWLIST_JSON = json.dumps({"schema_version": 1, "entries": [
+    {"phone_e164": OWNER_PHONE, "role": "owner"}, {"phone_e164": COLLAB_PHONE, "role": "collaborator"}]})
 
 
 class Idempotency:
@@ -49,15 +54,15 @@ class UnitOfWork:
 class Users:
     """Directory/allowlist. Owner and collaborator start with the current consent accepted."""
 
-    def __init__(self, idempotency=None, fail_consent=False):
+    def __init__(self, idempotency=None, fail_consent=False, fail_enroll=False):
         accepted = {"consent_version": CONSENT_VERSION, "consent_accepted_at": NOW}
         self.records = {
             OWNER_ID: {"role": "owner", "user_ref": "tguser:owner-a", "owner_ref": "owner:radar-pilot", **accepted},
             COLLAB_ID: {"role": "collaborator", "user_ref": "tguser:collab-b", "owner_ref": "owner:radar-pilot",
                         **accepted},
         }
-        self.idempotency, self.fail_consent = idempotency or Idempotency(), fail_consent
-        self.consent_calls, self.consent_log = [], []
+        self.idempotency, self.fail_consent, self.fail_enroll = idempotency or Idempotency(), fail_consent, fail_enroll
+        self.consent_calls, self.consent_log, self.enroll_calls = [], [], []
 
     def get(self, user_id):
         return self.records.get(user_id)
@@ -73,6 +78,19 @@ class Users:
         self.idempotency.keys.update(idempotency_keys)
         record.update(consent_version=version, consent_accepted_at=accepted_at)
         self.consent_log.append((user_ref, version, accepted_at))
+        return True
+
+
+    def enroll(self, user_id, role, enrolled_at, idempotency_keys):
+        """Conditional create: user record + all keys, or nothing if the user or any key exists."""
+        self.enroll_calls.append((user_id, role, enrolled_at, list(idempotency_keys)))
+        if self.fail_enroll:
+            raise RuntimeError("synthetic enrollment persistence failure")
+        if user_id in self.records or any(key in self.idempotency.keys for key in idempotency_keys):
+            return False
+        self.idempotency.keys.update(idempotency_keys)
+        self.records[user_id] = {"role": role, "user_ref": f"tguser:enrolled-{len(self.records)}",
+                                 "owner_ref": "owner:radar-pilot", "enrolled_at": enrolled_at}
         return True
 
 
@@ -99,14 +117,15 @@ class Invites:
 class Bot:
     """A webhook plus handles on every fake, for assertions."""
 
-    def __init__(self, fail=False, fail_consent=False):
+    def __init__(self, fail=False, fail_consent=False, fail_enroll=False):
         self.idempotency = Idempotency()
         self.uow = UnitOfWork(self.idempotency, fail=fail)
-        self.users = Users(self.idempotency, fail_consent=fail_consent)
+        self.users = Users(self.idempotency, fail_consent=fail_consent, fail_enroll=fail_enroll)
         self.invites = Invites(self.users)
         self.now = NOW
         self.webhook = Webhook(secret=SECRET, unit_of_work=self.uow, idempotency=self.idempotency,
-                               users=self.users, invites=self.invites, clock=lambda: self.now)
+                               users=self.users, invites=self.invites,
+                               phone_allowlist=PhoneAllowlist.from_json(ALLOWLIST_JSON), clock=lambda: self.now)
 
     def post(self, update, secret=SECRET):
         body = update if isinstance(update, bytes) else json.dumps(update).encode()
@@ -116,12 +135,23 @@ class Bot:
     def effects(self):
         return {"keys": set(self.idempotency.keys), "uow_calls": len(self.uow.calls),
                 "users": set(self.users.records), "invite_calls": len(self.invites.calls),
-                "consent_calls": len(self.users.consent_calls)}
+                "consent_calls": len(self.users.consent_calls), "enroll_calls": len(self.users.enroll_calls)}
 
 
 def message(update_id, user_id, text, chat_type="private"):
     return {"update_id": update_id, "message": {
         "message_id": 1, "date": 1790000000, "text": text,
+        "from": {"id": user_id, "is_bot": False, "first_name": "Synthetic"},
+        "chat": {"id": user_id, "type": chat_type}}}
+
+
+def contact(update_id, user_id, phone_number, contact_user_id="self", chat_type="private"):
+    """Message carrying a shared contact; contact_user_id="self" = the sender's own card."""
+    card = {"phone_number": phone_number, "first_name": "Synthetic"}
+    if contact_user_id is not None:
+        card["user_id"] = user_id if contact_user_id == "self" else contact_user_id
+    return {"update_id": update_id, "message": {
+        "message_id": 1, "date": 1790000000, "contact": card,
         "from": {"id": user_id, "is_bot": False, "first_name": "Synthetic"},
         "chat": {"id": user_id, "type": chat_type}}}
 
