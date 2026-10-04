@@ -7,7 +7,7 @@ es autoridad de reclamos, no el snapshot de esta rama. Objetivo íntegro:
 Fuentes: [BOARD](BOARD.md), [CODEX_TASKS](CODEX_TASKS.md),
 [plan F0–F15](../research/agent-b/implementation-plan.md),
 [arquitectura](../ARCHITECTURE.md), [evaluaciones](../EVALUATIONS.md).
-El usuario confirmó alcance general: la dirección A0g `d38416b` sustituye
+El usuario confirmó alcance general: la dirección A0g `e6d6279` (incluye `d38416b`) sustituye
 restricciones temáticas anteriores. Productos/talleres son ejemplos opcionales.
 No modificar contratos de B ni considerar cookies como permiso universal.
 
@@ -39,6 +39,18 @@ No modificar contratos de B ni considerar cookies como permiso universal.
   completa cuatro lecturas sintéticas (perfumes, empleo, eventos, artículos),
   declara `synthetic_offline` y `real_sources_verified=false`. Ninguna cuenta,
   cookie, fuente real o mensaje a terceros se usó para esta prueba.
+- A12/A6/A8 + A9 `ea36afe` + A11 `ce2a4c4` + A13 `014f7b1`:
+  árbol `cf1faaaa4d78e7f5a780f9c94f96628437e95b2c`, sin conflictos;
+  **819 tests + 246 subtests** (51.85 s), cero skips/fallos, docs aprobadas.
+  A11 área comprobada por el coordinador: **60/60** (8.74 s). Snapshot privado
+  `../mor-a-governance/.local/all-offline-20261004/source`; no main, cuentas,
+  bot, fuente social o mensajería reales. Incluye interoperación A6/A8/A9 y
+  A6/A11, no una factory integrada que ejecute toda la UI en producción.
+- Inspección A3: `approve_action`, `record_result` y `transition` de wire
+  siguen explícitamente sin implementar. Sus equivalentes locales prueban
+  intenciones y estado; no sustituyen age, boundary del proveedor, outbox de
+  efectos y conformidad del puerto productivo. Este faltante es parte de F3/F7,
+  no un permiso para usar el runner Go de memoria como adaptador durable.
 
 ## Cierre por entrega
 
@@ -52,14 +64,15 @@ No modificar contratos de B ni considerar cookies como permiso universal.
 | B6 | Extracción, privacidad/cache/costo; evaluación antes habilitar | Integrado; B reportó humo real y activación. No prueba router general ni evaluación comparativa/humana completa |
 | A3/A3b | Flujo persistente y correcciones obligatorias de B | Código corregido y probado en candidato. Nueva revisión B e integración pendientes; A3b no es trabajo de código por rehacer |
 | A4 | Contratos, preflight, fixtures, límites/cleanup, Docker/RIE | Integrada/probada para fixtures. Helper age/sesiones reales y fuentes autorizadas siguen pendientes; F6 completo no se deduce solo del incremento A4 |
-| A0g | Alcance general coherente, glosario/plan, tests | Candidato documental `d38416b` listo; revisión/integración pendientes |
+| A0g | Alcance general coherente, glosario/plan, tests | Candidato documental `e6d6279` listo; 387 + 238 subtests y docs aprobados tras reiteración del usuario. Revisión/integración pendientes |
 | A12 | Polling durable, takeover explícito, reutilizar webhook; prueba propietario/bot real | Candidato `11bf9ba`: coordinador comprobó 52/52 área y suite 588 + 238 subtests (34.94 s), docs/diff verdes. Vault/factory/tick reales, revisión B e integración pendientes; no conectado al bot real |
 | A6 | Router general tipado, registro, budgets, confirm/correct/cancel, callbacks; tests | Candidato `5640f3b`: implementador verificó 52 área/588 + 246 subtests. Coordinador Node229/229/23schemas y combinación A12+A6 640 + 246. Vault cifrado real, B/schema/prompt, webhook, ejecutores e integración pendientes |
 | A8 | Fuentes web/social generales por capacidades, preflight, lectura/dedupe/evidencia | Candidato `6324b94` incluye 73 tests nuevos; prueba conjunta independiente 713 + 246. Lecturas inyectadas/cursores privados/CLI offline. Revisión, wiring, age/capacidades reales y dedupe entre corridas pendientes; no en main ni redes habilitadas |
-| A7 | Descubrimiento/contacto/seguimiento genéricos, aprobaciones y comparación cuando aplica | No implementada; depende A6/A8 y gate Go. Cotización es plantilla opcional; silencio no es precio cero |
-| A9 | Investigación con citas/cobertura/costo y formato solicitado; PDF opcional | No implementada; requiere búsqueda autorizada, decisión de proveedor/costo y pruebas de citas/fallos; PDF sólo si solicitado |
+| A7 | Descubrimiento/contacto/seguimiento genéricos, aprobaciones y comparación cuando aplica | En implementación aislada; depende A6/A8 y gate Go. Cotización es plantilla opcional; silencio no es precio cero |
+| A9 | Investigación con citas/cobertura/costo y formato solicitado; PDF opcional | Candidato `ea36afe`: 46 pruebas propias, suite implementador 707 + 246, combinación independiente 819 + 246. Citas contrastadas con capturas, estados parciales y salidas privadas; extracción literal sin síntesis IA. Sourcing/proveedor/costo, reserva/vault/UI reales y PDF solicitado pendientes |
 | A10 | Conversaciones habilitadas, destinatarios inequívocos, borradores/ledger, privacidad | No implementada; coordinación por canal, WhatsApp primero no implica único canal. Gate Go y cuentas reales siguen abiertos |
-| A11 | Programación/zonas, replay, pausa/borrado, cuotas y autorización de efectos | No implementada; zona configurable. Local y EventBridge requieren pruebas separadas; no provisionar por inferencia |
+| A11 | Programación/zonas, replay, pausa/borrado, cuotas y autorización de efectos | Candidato `ce2a4c4`: coordinador 60/60 área y combinación 819 + 246. Local durable/DST/cuotas UTC/ocurrencias/outbox comprobados; `/tareas`, calendario confirmado/factory/ejecutor y trigger operativo pendientes. EventBridge no provisionado |
+| A14 | Backend age durable compartido para los flujos privados | En preparación aislada, sin reemplazar por fakes ni cifrado Python. Pruebas criptográficas, límites de pipes, aislamiento owner/audience y permisos de host pendientes; no habilita cuentas por existir un helper |
 | A5/F7 | DynamoDB/S3/SQS/SSM, conformidad local, outbox/reparación; experimento R1 | No implementada; depende A3. Pruebas con emuladores/moto no sustituyen AWS real |
 | F8 | SAM build/local invoke, IAM/timeout/visibilidad/concurrencia/DLQ | Pendiente; infraestructura local verificable antes de autorización para desplegar |
 | F9 | Threat model, stop/borrado/export, privacidad y revisión aplicable | Consentimiento parcial implementado. Borrado/logout/retención y revisión requerida para colaboradores no constatados |
