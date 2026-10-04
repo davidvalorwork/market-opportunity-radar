@@ -1,0 +1,17 @@
+**
+!pyproject.toml
+!requirements.lock
+!LICENSE
+!NOTICE
+!src/
+!src/**
+!contracts/
+!contracts/capabilities.json
+!contracts/examples/
+!contracts/examples/**
+!tests/
+!tests/test_contracts.py
+!tests/domain/
+!tests/domain/**
+**/__pycache__/
+**/*.pyc
