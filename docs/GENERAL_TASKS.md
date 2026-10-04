@@ -5,6 +5,13 @@ ejecutable ni prueba de cobertura. Prevalece sobre la antigua limitación a
 productos y sobre los ejemplos de talleres/Cashea de la Ola 2. El plan original
 de B se conserva como historial; se solicita su alineación por BOARD.
 
+Reiterado por el usuario el 2026-10-04: esta estructura recibe pedidos sobre
+cualquier tema; no está enfocada en talleres. Buscar información, descubrir
+números publicados pertinentes, contactar, navegar Marketplace y otras redes
+son operaciones independientes y componibles con las sesiones que el propietario
+entregue. Ningún ejemplo del plan se convierte en filtro o requisito obligatorio.
+La cobertura de cada red y operación se comprueba antes de anunciarla disponible.
+
 ## Lo que debe ser general
 
 - Tema libre: investigación, productos, servicios, proveedores, empleo u otros.
