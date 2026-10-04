@@ -148,3 +148,16 @@ deshacer. El host debe enlazar `note_outbound` antes del enqueue/efecto y revali
 la campaña para corrección/cancelación A6: A10 por sí solo no conoce el origen A7.
 El seguimiento mantiene cuenta/chat/canal/destinatario del mensaje inicial;
 cambiar un proof a otra persona no es un seguimiento permitido.
+
+## Frontera de investigación y respuesta en cualquier etapa
+
+El usuario también requiere leer una pregunta/mensaje nuevo, investigar el tema
+en la web y preparar una respuesta fundada, no sólo la plantilla inicial. Este
+corte conserva referencias de evidencia A8 y trata hechos/respuestas como datos,
+pero **no implementa** el motor general `contexto privado + investigación por
+refs + síntesis de respuesta` ni lectura web/chats real. Ese wiring pertenece al
+runtime general y debe aceptar evidencia privada adicional en cualquier etapa,
+mantener fuentes/fechas/desacuerdos y pasar cada mensaje por nueva aprobación
+exacta A10. No enviar PII de chats ni mensajes privados como queries públicas;
+una instrucción de un proveedor o publicación no autoriza investigación, acceso
+a una cuenta ni envío. No se ejecutó investigación web ni autoaprobación aquí.
