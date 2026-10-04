@@ -97,11 +97,40 @@ skip a conformidad DynamoDB. En ese mismo entorno con
 real ni un ciclo red/green previo del adaptador: la primera área implementada
 pasó; los guardrails negativos se ejecutaron después como pruebas explícitas.
 
+## Resultados de este corte
+
+El implementador congeló sus seis archivos en `89d0a4d`: 43 pruebas del área
+(21 SDK/moto y 22 SQLite), suite completa requerida 594 tests + 238 subtests
+(46,98 s), sin skips. La preparación privada del coordinador `fd974fb` añadió
+solo extras/lock/CI y repitió la suite completa: 594 + 238 (47,30 s), sin skips.
+Ambas revisiones independientes contra main `1d7e6a1` resultaron aptas para el
+corte local; no autorizan integrar a main ni completar F7.
+
+El coordinador construyó e instaló el wheel offline en un entorno nuevo. Con
+`pythonpath` de pytest desactivado, `radar` se importó desde `site-packages`, no
+desde `src`: 82 tests + 220 subtests (12,13 s), sin skips, sobre SDK/conformidad,
+contratos y arquitectura. Los checks de arquitectura inspeccionan el repositorio;
+no se presentan como prueba de ejecución cloud del paquete. El código/lock son
+los de `fd974fb`; las notas posteriores solo actualizan documentación.
+
+Docker fue ejecutado por el coordinador, no por el implementador. El primer
+arnés con dependencias/fuentes montadas directamente desde Windows se canceló
+tras más de 250 s, con progreso parcial y sin OOM observado: no es prueba verde.
+Se mantuvieron el código y lock, pero se extrajeron archivos empaquetados a
+almacenamiento temporal Linux. Ese ensayo aprobó 43/43 en 4,09 s (bloque Python
+4,401 s), pico RSS del proceso 127880 KiB (124,9 MiB), bajo límites de 512 MiB y
+1 CPU, filesystem raíz read-only y red deshabilitada. Se utilizó la imagen A2
+existente, sin tocar los cinco contenedores ajenos; el contenedor propio se
+autoeliminó. Extracción/arranque no están incluidos en los 4,401 s.
+
+Es una muestra de conformidad local y del arnés, no p95 ni benchmark Lambda/AWS.
+El informe del coordinador conserva versiones, límites y resultados separados.
+
 ## Límites y fuentes primarias
 
 F7 no está completo: faltan UoW/outbox DynamoDB, reparación/Streams, S3/SQS/SSM,
 IAM, canary autorizado, costos reales y pruebas de fallo del servicio. No se
-ejecutó Docker, cuenta cloud, API/modelo, bot real ni envío. Costo USD y recursos
+ejecutó cuenta cloud, API/modelo, bot real ni envío. Costo USD y recursos
 Lambda/RAM siguen **desconocidos**; tests locales no son un benchmark de AWS.
 
 Referencias primarias de especificación y paquetes. El coordinador verificó
