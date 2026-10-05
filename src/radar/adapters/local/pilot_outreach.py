@@ -49,6 +49,11 @@ números publicados; escribir a números que él te dé.
   keywords "silenciador", chat_names [], send_to ["Ana"], reply_to_chats true, message "" (se redacta tras leer).
 - search_query: búsqueda en Google (corta, 4 a 8 palabras) para encontrar a quién contactar o la información pedida; si hay que contactar, termina con "teléfono whatsapp" y NO incluyas condiciones que el mensaje pregunta (forma de pago, precio, disponibilidad). Ejemplo: "tiendas de frenos en Valencia que acepten Cashea" -> "tienda frenos Valencia teléfono whatsapp". "" si no hace falta buscar.
 - broad_query: otra búsqueda más amplia con SOLO el tipo de negocio o persona, la ciudad y "teléfono whatsapp", sin ninguna condición extra; "" si no hace falta buscar.
+- searches: búsquedas ADICIONALES (lote) según la complejidad del pedido: 0 para pedidos simples, 1 a 4 para
+  comparaciones, investigaciones amplias o temas de opinión. Cada una {source, query}, variando términos y fuentes:
+  google (web), yahoo (web alternativa), facebook (negocios y páginas locales, muy usado en Venezuela), instagram (cuentas
+  de negocios; query = nombre o rubro corto), x (opiniones, noticias, tendencias), youtube (reseñas, tutoriales),
+  reddit (opiniones internacionales), threads, tiktok. No repitas search_query ni broad_query.
 - message: mensaje de WhatsApp listo para enviar a cada contacto, en español, cordial y breve, \
 en primera persona como el usuario. Usa SOLO datos que el usuario dio; no inventes datos, precios ni nombres. \
 "" si el pedido no implica escribirle a nadie.
@@ -63,9 +68,11 @@ en primera persona (con los datos concretos, no solo un saludo).
 Los números de teléfono aparecen como [número]; no los escribas en el mensaje."""
 
 SCHEMA = {'type': 'object', 'additionalProperties': False,
-    'required': ['reply', 'search_query', 'broad_query', 'message', 'ready', 'new_request', 'exclude',
+    'required': ['reply', 'search_query', 'broad_query', 'searches', 'message', 'ready', 'new_request', 'exclude',
         'read_chats', 'chat_names', 'keywords', 'hours', 'reply_to_chats', 'read_email', 'email_query', 'email_reply', 'email_subject', 'read_social', 'social_platforms', 'reply_social', 'send_to'],
     'properties': {'reply': {'type': 'string'}, 'search_query': {'type': 'string'}, 'broad_query': {'type': 'string'},
+        'searches': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['source', 'query'],
+            'properties': {'source': {'type': 'string', 'enum': list(('google', 'yahoo', 'facebook', 'instagram', 'x', 'youtube', 'reddit', 'threads', 'tiktok'))}, 'query': {'type': 'string'}}}},
         'message': {'type': 'string'}, 'ready': {'type': 'boolean'}, 'new_request': {'type': 'boolean'},
         'exclude': {'type': 'array', 'items': {'type': 'integer'}}, 'read_chats': {'type': 'boolean'},
         'chat_names': {'type': 'array', 'items': {'type': 'string'}}, 'keywords': {'type': 'string'},
@@ -127,6 +134,10 @@ def plan(text, previous=None, *, context='', model=claude_cli):
         document = model(SYSTEM, redact(user), SCHEMA)
     except Exception:
         raise OutreachError('ai_unavailable') from None
+    if isinstance(document.get('searches'), list):
+        document['searches'] = [{'source': s.get('source'), 'query': str(s.get('query', '')).strip().strip('"\'').strip()}
+            for s in document['searches'] if isinstance(s, dict)]
+        document['searches'] = [s for s in document['searches'] if s['source'] in ('google', 'yahoo', 'facebook', 'instagram', 'x', 'youtube', 'reddit', 'threads', 'tiktok') and s['query']][:4]
     for key in ('search_query', 'broad_query', 'keywords'):
         if isinstance(document.get(key), str):
             document[key] = document[key].strip().strip('"\'').strip()  # the model sometimes returns '""'
@@ -200,6 +211,16 @@ def summarize(request_text, replies, *, model=claude_cli):
         raise OutreachError('ai_unavailable') from None
 
 
+SOURCE_NAMES = {'google': 'Google', 'yahoo': 'Yahoo', 'facebook': 'Facebook', 'instagram': 'Instagram', 'x': 'X',
+    'youtube': 'YouTube', 'reddit': 'Reddit', 'threads': 'Threads', 'tiktok': 'TikTok'}
+
+
+def search_batch(plan, limit=6):
+    """[(source, query)]: the plan's Google queries plus its extra batch, deduplicated, at most `limit`."""
+    batch = [('google', plan.get(k, '')) for k in ('search_query', 'broad_query')] + [(s['source'], s['query']) for s in plan.get('searches', [])]
+    return list(dict.fromkeys((s, q.strip()) for s, q in batch if q.strip()))[:limit]
+
+
 def telegram_html(text, limit=3800):
     """Model Markdown-lite -> Telegram HTML chunks (parse_mode HTML; only <b>/<i>/<code>).
 
@@ -271,10 +292,12 @@ if __name__ == '__main__':
         '+584141234567', '+584241234567', '+582125551234']
     assert phones('ref 2024123456789 y +58 412 1234567') == ['+584121234567']
     assert redact('escríbele al 04141234567') == 'escríbele al [número]'
-    fake = lambda system, user, schema: {'reply': 'ok', 'search_query': 'q', 'broad_query': '', 'message': 'm',
+    fake = lambda system, user, schema: {'reply': 'ok', 'search_query': 'q', 'broad_query': '', 'searches': [{'source': 'x', 'query': '"op"'},
+        {'source': 'myspace', 'query': 'no'}], 'message': 'm',
         'ready': True, 'new_request': True, 'exclude': [], 'read_chats': False, 'chat_names': [], 'keywords': '',
         'hours': 24, 'reply_to_chats': False, 'read_email': False, 'email_query': '', 'email_reply': False, 'email_subject': '', 'read_social': False, 'social_platforms': [], 'reply_social': False, 'send_to': []}
-    assert plan('x', model=fake)['search_query'] == 'q'
+    assert plan('x', model=fake)['search_query'] == 'q' and plan('x', model=fake)['searches'] == [{'source': 'x', 'query': 'op'}]
+    assert search_batch({'search_query': 'a', 'broad_query': 'a', 'searches': [{'source': 'x', 'query': 'b'}]}) == [('google', 'a'), ('x', 'b')]
     assert candidates([('https://a', b'Title: T\n0414 123 4567'), ('https://b', b'Title: U\n+584141234567')]) == [
         {'phone': '+584141234567', 'url': 'https://a', 'title': 'T'}]
     assert telegram_html('## Hoy\n**Ana** <x> & `id`\n- uno\n* dos') == ['<b>Hoy</b>\n<b>Ana</b> &lt;x&gt; &amp; <code>id</code>\n• uno\n• dos']

@@ -450,7 +450,8 @@ class Pilot:
             if not (plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct)):
                 return None
         # Recipients resolve whenever sending is intended, even if the message is written later (after research).
-        will_write = bool(plan['message'] or plan['search_query'])
+        searching = bool(outreach.search_batch(plan))
+        will_write = bool(plan['message'] or searching)
         if plan['reply_social'] and will_write and self.social is not None and 'x' in plan['social_platforms']:
             targets = plan['send_to'] or plan['chat_names']
             if not self.archive('resolve_social', 'x', targets):
@@ -476,7 +477,7 @@ class Pilot:
                     return self.tell(authority,event+':nochat','No encontré un chat de WhatsApp parecido a «'+', '.join(targets)+
                         '». Escríbeme el nombre como lo tienes guardado o su número.')
                 doc = {'id':uuid4().hex,'state':'choosing','plan':plan,'found':direct,'pages':[],'options':options,'request':text}
-                if plan['search_query']:
+                if searching:
                     doc = {**doc,'found':[],'pending':direct}
                 self.save(authority,'outreach','active',doc)
                 self.archive('request', doc['id'], text, doc['plan'])
@@ -484,7 +485,7 @@ class Pilot:
             direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in chats]
         if previous is None or plan['new_request']:
             doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[],'request':text}
-            if plan['search_query'] and direct and (plan['reply_to_chats'] or plan['send_to'] or plan['reply_social']):
+            if searching and direct and (plan['reply_to_chats'] or plan['send_to'] or plan['reply_social']):
                 # "investiga X y mándaselo a Y": recipients are known, the message must be written from the research.
                 doc = {**doc,'state':'planned','found':[],'pending':direct}
         else:
@@ -499,8 +500,9 @@ class Pilot:
     def show(self, authority, key, doc):
         plan, found = doc['plan'], doc['found']
         lines = [plan['reply']]
-        if doc['state'] == 'planned' and plan['search_query']:
-            lines.append('Búsqueda: '+plan['search_query'])
+        batch = outreach.search_batch(plan)
+        if doc['state'] == 'planned' and batch:
+            lines.append('Búsquedas ('+str(len(batch))+'):\n'+'\n'.join('• '+outreach.SOURCE_NAMES[s]+': '+q for s,q in batch))
         if doc['pages'] and not found:
             lines.append('Fuentes:\n'+'\n'.join(title+'\n'+url for title,url in doc['pages']))
         if found:
@@ -512,7 +514,7 @@ class Pilot:
         buttons = []
         if plan['ready'] and found and plan['message']:
             buttons.append(('Enviar a '+str(len(found)),'send'))
-        elif plan['ready'] and doc['state'] == 'planned' and plan['search_query']:
+        elif plan['ready'] and doc['state'] == 'planned' and batch:
             buttons.append(('Buscar','search'))
         body = {'text':'\n\n'.join(lines+(['Para corregir, escríbelo.'] if buttons else []))[:4000]}
         if buttons:
@@ -559,20 +561,28 @@ class Pilot:
             self.save(authority,'outreach','active',{**doc,'state':'cancelled'})
             return self.tell(authority,key,'Cancelado.')
         if value['action'] == 'search':
-            if self.web is None:
+            if self.web is None or self.social is None:
                 return self.tell(authority,key,'OpenCLI no está instalado; no puedo buscar.')
-            try:
-                rows = ()
-                for query in dict.fromkeys(q for q in (doc['plan']['search_query'],doc['plan']['broad_query']) if q.strip()):
-                    try:
-                        found = self.web.search(query,20,timeout=90,max_bytes=2097152)[0]
-                        self.archive('search', doc['id'], query, found, outreach.phones)
-                        rows += found
-                    except SourceFailure:
-                        if not rows and query == doc['plan']['broad_query']: raise
-                if not rows: raise SourceFailure('no_results')
-            except SourceFailure:
-                return self.tell(authority,key,'La búsqueda en Google (OpenCLI) falló. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
+            batch = outreach.search_batch(doc['plan'])
+            self.tell(authority,key+':searching','Buscando en '+str(len(batch))+' fuentes ('+', '.join(dict.fromkeys(
+                outreach.SOURCE_NAMES[s] for s,_ in batch))+'). Puede tardar hasta 3 minutos.')
+            rows, failed, started = (), [], time.monotonic()
+            for source, query in batch:
+                if time.monotonic() - started > 180:  # stay well inside the callback's lease
+                    failed.append(outreach.SOURCE_NAMES[source]+' (sin tiempo)'); continue
+                try:
+                    found = (self.web.search(query,20,timeout=90,max_bytes=2097152)[0] if source == 'google'
+                        else self.social.search(source,query,10))
+                    self.archive('search', doc['id'], '['+source+'] '+query, found, outreach.phones)
+                    rows += tuple(found)
+                except (SourceFailure, SocialError, subprocess.TimeoutExpired, OSError, ValueError):
+                    failed.append(outreach.SOURCE_NAMES[source])
+            seen = set()
+            rows = tuple(r for r in rows if not (r[0] in seen or seen.add(r[0])))
+            if failed:
+                self.tell(authority,key+':failed','Sin resultados o con error en: '+', '.join(failed)+'.')
+            if not rows:
+                return self.tell(authority,key,'Ninguna búsqueda devolvió resultados. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
             pages = [(content.decode('utf-8','replace').splitlines()[0].removeprefix('Title: ')[:120],url) for url,content in rows]
             if 'pending' in doc or not doc['plan']['message']:
                 now = datetime.now(timezone.utc)
@@ -586,7 +596,7 @@ class Pilot:
                     self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
                     return None
                 doc = {**doc,'state':'found','found':doc['pending'],'pages':pages,
-                    'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':''}}
+                    'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':'','broad_query':'','searches':[]}}
                 doc.pop('pending')
             else:
                 doc = {**doc,'state':'found','found':outreach.candidates(rows),'pages':pages}
