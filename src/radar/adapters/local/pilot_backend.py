@@ -444,8 +444,18 @@ class Pilot:
             targets = plan['send_to'] or plan['chat_names']
             chats = self.archive('resolve_chats', targets) or []
             if not chats:
-                return self.tell(authority,event+':nochat','No encontré un chat de WhatsApp que coincida con «'+', '.join(targets)+
-                    '». Escríbeme el nombre como lo tienes guardado o su número.')
+                options = []
+                for name in targets:
+                    options += [{'phone':jid,'url':'','title':display+' (chat existente)','label':display+(' · …'+pn[-4:] if pn else '')}
+                        for _,jid,display,pn,_ in self.archive('similar_chats', name) or ()]
+                options = list({o['phone']:o for o in options}.values())[:6]
+                if not options:
+                    return self.tell(authority,event+':nochat','No encontré un chat de WhatsApp parecido a «'+', '.join(targets)+
+                        '». Escríbeme el nombre como lo tienes guardado o su número.')
+                doc = {'id':uuid4().hex,'state':'choosing','plan':plan,'found':direct,'pages':[],'options':options}
+                self.save(authority,'outreach','active',doc)
+                self.archive('request', doc['id'], text, doc['plan'])
+                return self.ask_choice(authority,event,doc,', '.join(targets))
             direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in chats]
         if previous is None or plan['new_request']:
             doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[]}
@@ -486,11 +496,33 @@ class Pilot:
                 body['buttons'].append({'text':label,'callback_ref':token})
         self.runtime.notify(authority.owner_ref,authority.actor_ref,body,key=key+':outreach:'+uuid4().hex)
 
+    def ask_choice(self, authority, event, doc, asked):
+        """Owner picks the intended chat among the most similar names (one button each)."""
+        buttons = []
+        for index, option in enumerate(doc['options']):
+            token = 'gcb:a'+uuid4().hex
+            self.store.db.execute("INSERT INTO general_callbacks VALUES(?,?,?,'pilot',?,0)",(authority.owner_ref,authority.actor_ref,token,
+                self.runtime.seal(authority.owner_ref,{'action':'pick','doc':doc['id'],'index':index})))
+            buttons.append({'text':option['label'][:60],'callback_ref':token})
+        token = 'gcb:a'+uuid4().hex
+        self.store.db.execute("INSERT INTO general_callbacks VALUES(?,?,?,'pilot',?,0)",(authority.owner_ref,authority.actor_ref,token,
+            self.runtime.seal(authority.owner_ref,{'action':'cancel','doc':doc['id']})))
+        buttons.append({'text':'Ninguno / cancelar','callback_ref':token})
+        self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':'No encontré exactamente «'+asked+
+            '». ¿Es alguno de estos chats? (ordenados por parecido)','buttons':buttons},key=event+':choose:'+uuid4().hex)
+
     def button(self, *, authority, value):
         doc = self.load(authority,'outreach','active')
         key = 'outreach:'+uuid4().hex
-        if doc is None or doc['id'] != value['doc'] or doc['state'] not in ('planned','found'):
+        if doc is None or doc['id'] != value['doc'] or doc['state'] not in ('planned','found','choosing'):
             return self.tell(authority,key,'Ese plan ya no está activo.')
+        if value['action'] == 'pick':
+            if doc['state'] != 'choosing' or not 0 <= value.get('index', -1) < len(doc['options']):
+                return self.tell(authority,key,'Esa opción ya no está activa.')
+            chosen = {k:v for k,v in doc['options'][value['index']].items() if k != 'label'}
+            doc = {**doc,'state':'found','found':doc['found']+[chosen],'options':[]}
+            self.save(authority,'outreach','active',doc)
+            return self.show(authority,key,doc)
         if value['action'] == 'cancel':
             self.save(authority,'outreach','active',{**doc,'state':'cancelled'})
             return self.tell(authority,key,'Cancelado.')
