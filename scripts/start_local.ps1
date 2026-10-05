@@ -33,6 +33,7 @@ while ($true) {
         $env:RADAR_TELEGRAM_TOKEN = (Get-Content (Join-Path $state 'telegram-token.txt') -Raw).Trim()
         $env:PYTHONIOENCODING = 'utf-8'
         $env:OPENCLI_WINDOW = 'background'  # automation windows stay out of the way
+        $startedAt = Get-Date
         $pilot = Start-Process -FilePath (Join-Path $repo '.venv\Scripts\python.exe') -WorkingDirectory $repo -WindowStyle Hidden -PassThru `
             -ArgumentList '-m', 'radar.entrypoints.telegram_pilot', 'run', '--state-dir', '.local/pilot-state', '--max-polls', '10000' `
             -RedirectStandardOutput (Join-Path $state 'pilot.log') -RedirectStandardError (Join-Path $state 'pilot.err')
@@ -44,5 +45,7 @@ while ($true) {
     } catch {
         Note "launcher error: $($_.Exception.GetType().Name)"
     }
-    Start-Sleep 60  # a killed pilot keeps its poll lease up to 5 min; retry until it expires
+    # A clean exit after a real run (e.g. reload on a new commit) released its lease: restart fast.
+    # A killed pilot keeps its poll lease up to 5 min, so failed starts retry every minute.
+    if ($startedAt -and ((Get-Date) - $startedAt).TotalSeconds -gt 60) { Start-Sleep 3 } else { Start-Sleep 60 }
 }
