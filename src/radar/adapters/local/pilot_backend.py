@@ -424,7 +424,7 @@ class Pilot:
                 try: reply, composed = outreach.answer(text, messages, files=files, files_dir=folder)
                 except outreach.OutreachError as error: raise GeneralError(str(error)) from None
             self.tell_rich(authority,event+':read',reply+'\n\n*'+str(len(messages))+' mensajes leídos'+('; '+'; '.join(notes) if notes else '')+'*')
-            if composed and not plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct):
+            if composed and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct):
                 plan = {**plan, 'message': composed}  # written from what was just read; still needs the owner's approval
             if not (plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct)):
                 return None
@@ -441,7 +441,12 @@ class Pilot:
                 direct.append({'phone':parseaddr(m['reply_to'] or m['from'])[1],'url':'','title':'responder «'+m['subject']+'»',
                     'channel':'email','subject':subject,'thread':m['thread_id'],'in_reply_to':m['message_id']})
         if plan['reply_to_chats'] and plan['message']:
-            direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in self.archive('resolve_chats', plan['send_to'] or plan['chat_names']) or ()]
+            targets = plan['send_to'] or plan['chat_names']
+            chats = self.archive('resolve_chats', targets) or []
+            if not chats:
+                return self.tell(authority,event+':nochat','No encontré un chat de WhatsApp que coincida con «'+', '.join(targets)+
+                    '». Escríbeme el nombre como lo tienes guardado o su número.')
+            direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in chats]
         if previous is None or plan['new_request']:
             doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[]}
         else:
