@@ -1,29 +1,43 @@
-"""Opt-in local pilot: deterministic Telegram commands, real Exa and WhatsApp.
+"""Opt-in local pilot: Telegram commands plus free text, real Exa and WhatsApp.
 
-No free-text model, synthetic approval, raw phone routing or generic shell tool.
+Free text goes to pilot_outreach (AI plan, owner-approved sends via the local
+bridge). No synthetic approval, model-chosen recipients or generic shell tool.
 Research retains one investigation identity across explicit /mas invocations.
 """
 from dataclasses import asdict, replace
 from datetime import timedelta
 from hashlib import sha256
+from datetime import datetime, timezone
 import json
+from pathlib import Path
 import re
 from uuid import uuid4
 
 from radar.application.conversations.models import Account
 from radar.application.research.cache import CacheBinding, CachePolicy, CacheRecord, CacheError
 from radar.adapters.local.research_cache import SQLiteResearchCache
-from radar.adapters.local.pilot_sources import AgentReachExa, PilotCapabilities
+from radar.adapters.local.pilot_sources import AgentReachExa, OpenCliGoogle, PilotCapabilities
 from radar.adapters.local.whatsapp_bridge import create_bridge, BridgeError
 from radar.adapters.sources.generic.model import SourceFailure
 from radar.ports.types import BlobPointer, ConditionalConflict, LedgerState
 from .general_runtime import GeneralError, canonical
 from .sqlite import parse, stamp
 from .conversations import SELF_TEST_PURPOSE, SELF_TEST_TEXT
+from . import pilot_outreach as outreach
+from . import gmail
+from .social import Social, SocialError, LABELS
+from email.utils import parseaddr
+import subprocess
+import tempfile
+import sys
+import time
 
 
 SOURCE = 'source:exaweb'
-HELP = ('/vincular +numero: vincular TU WhatsApp por código\n'
+# Inboxes synced and read; Messenger/Instagram plugins are read-only (missing plugin = per-platform note, not a crash).
+SOCIAL = ('x', 'messenger', 'instagram', 'marketplace')
+HELP = ('Escribe tu pedido en texto libre: la IA arma búsqueda y mensaje; tú apruebas antes de enviar.\n'
+    '/vincular +numero: vincular TU WhatsApp por código\n'
     '/chats: listar chats; /leer alias: sincronizar sólo ese chat\n'
     '/responder alias texto: preparar respuesta para aprobar\n'
     '/prueba_whatsapp: mensaje de prueba sólo a ti mismo\n'
@@ -72,6 +86,18 @@ class Pilot:
             raise GeneralError('pilot_configuration')
         self.search = AgentReachExa(clock=self.clock, **settings['agent_reach'])
         self.capabilities.search = self.search
+        # One local bridge per WhatsApp session; the first one is used until requests pick a session.
+        bridges = settings.get('bridges', {'principal': {'port': 8080}})
+        self.bridges = {name: 'http://127.0.0.1:%d/api/send' % row['port'] for name, row in bridges.items()}
+        self.bridge_stores = {name: Path(row['dir'])/'store' for name, row in bridges.items() if row.get('dir')}
+        self.database, self._archive, self._archive_at, self._synced_at = settings.get('database'), None, 0, 0
+        self.gmail_enabled, self._mail_synced_at = bool(settings.get('gmail')), 0
+        node = Path(settings['agent_reach']['node'])
+        try: self.web = OpenCliGoogle(node=node, script=node.parent/'node_modules'/'@jackwener'/'opencli'/'dist'/'src'/'main.js')
+        except ValueError: self.web = None  # OpenCLI absent: searches report it, commands still work
+        try: self.social = Social(node=node, script=node.parent/'node_modules'/'@jackwener'/'opencli'/'dist'/'src'/'main.js')
+        except ValueError: self.social = None
+        self._social_synced_at, self._locked_told_at = 0, {}
         self.cache = SQLiteResearchCache(store=self.store,vault=vault.view('worker:research'),authorize=self._cache_authorize)
         self.wa_vault = vault.view('worker:whatsapp')
         self.bridge = create_bridge(store=self.store, conversations_repository=runtime.conversations.repository,
@@ -126,6 +152,11 @@ class Pilot:
 
     def tell(self, authority, event, text):
         return self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':text},key=event)
+
+    def tell_rich(self, authority, event, text):
+        """Model-written prose: Telegram HTML, split into as many messages as needed."""
+        for index, chunk in enumerate(outreach.telegram_html(text)):
+            self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':chunk,'html':True},key=event+':'+str(index))
 
     def _pair_allowed(self, *, authority, account_ref, event_ref, phone_ref):
         intent = self.load(authority,'pair',event_ref)
@@ -263,9 +294,266 @@ class Pilot:
         steps.append({'step_id':'report','operation':'inform','depends_on':[steps[-1]['step_id']], 'arguments':{'private_ref':pointer}})
         return self.propose(authority,event,'Investigar: '+topic,steps)
 
+    def archive(self, action, *args):
+        """Best effort: the analysis archive never blocks the pilot; reconnects at most once a minute."""
+        if not self.database:
+            return None
+        try:
+            if self._archive is None:
+                if time.monotonic() - self._archive_at < 60:
+                    return None
+                self._archive_at = time.monotonic()
+                from .archive import Archive, dsn_from_env_file  # psycopg only when the archive is configured
+                self._archive = Archive(dsn_from_env_file(self.database['env_file'], port=self.database['port']))
+            return getattr(self._archive, action)(*args)
+        except Exception as error:
+            print(json.dumps({'component': 'archive', 'action': action, 'error': type(error).__name__}), file=sys.stderr, flush=True)
+            if self._archive is not None and self._archive.conn.closed:
+                self._archive = None
+            return None
+
+    def replies_tick(self, authority):
+        if time.monotonic() - self._synced_at < 60:
+            return
+        self._synced_at = time.monotonic()
+        for name, store in self.bridge_stores.items():
+            self.archive('sync_whatsapp', name, store)
+        if self.social is not None and time.monotonic() - self._social_synced_at > 600:
+            self._social_synced_at = time.monotonic()
+            # Messenger only on demand: opening its inbox auto-opens the newest chat and may send a "seen" receipt.
+            try: self.social_sync(authority, platforms=tuple(p for p in SOCIAL if p != 'messenger'), read_changed=3)
+            except Exception as error:  # background sync must never take the bot down
+                print(json.dumps({'component': 'social', 'error': type(error).__name__}), file=sys.stderr, flush=True)
+        if self.gmail_enabled and time.monotonic() - self._mail_synced_at > 300:
+            self._mail_synced_at = time.monotonic()
+            try:
+                missing = self.archive('missing_emails', gmail.list_ids('newer_than:30d', 500)) or []
+                # Newest 10 first so replies to our emails show up quickly, then backfill oldest 15.
+                self.archive('store_emails', [gmail.get(i) for i in dict.fromkeys(missing[:10] + missing[-15:])])
+            except Exception as error:  # background sync must never take the bot down
+                print(json.dumps({'component': 'gmail', 'error': type(error).__name__}), file=sys.stderr, flush=True)
+        for ref, replies in (self.archive('pending_replies') or {}).items():
+            try:
+                summary = outreach.summarize(self.archive('request_text', ref) or '', replies)
+            except outreach.OutreachError:
+                return
+            self.tell_rich(authority,'replies:'+uuid4().hex,'**Respuestas recibidas** ('+str(len(replies))+' mensajes)\n\n'+summary)
+            self.archive('summarized', ref, max(r[2] for r in replies), len(replies), summary)
+
+    def voice(self, authority, event, file_id):
+        """Telegram voice note -> local Whisper transcript -> same flow as typed text."""
+        from radar.adapters.telegram.bot_api import TelegramError
+        from . import transcribe
+        try:
+            data, path = self.api.download_file(file_id)
+        except TelegramError:
+            return self.tell(authority,event+':voice','No pude descargar el audio (máximo 20 MB).')
+        with tempfile.TemporaryDirectory(prefix='radar-voz-') as folder:
+            audio = Path(folder)/('nota'+(Path(path).suffix or '.ogg'))
+            audio.write_bytes(data)
+            try: text = transcribe.transcribe(audio)
+            except Exception: return self.tell(authority,event+':voice','No pude transcribir el audio.')
+        if not text:
+            return self.tell(authority,event+':voice','No entendí el audio; prueba de nuevo o escríbelo.')
+        self.tell_rich(authority,event+':voice','🎤 *Entendí:* '+text)
+        return self.request(authority,event,text)
+
+    def social_sync(self, authority, *, platforms=SOCIAL, read_changed=3, names=()):
+        """Refresh inboxes into the archive; read changed (or named) DM threads. -> [(ts, chat, author, text)]."""
+        rows, notes = [], []
+        for platform in platforms:
+            label = LABELS[platform]
+            try:
+                threads = self.social.threads(platform)
+            except SocialError as error:
+                if str(error) == 'dm_locked' and time.monotonic() - self._locked_told_at.get(platform, 0) > 3600:
+                    self._locked_told_at[platform] = time.monotonic()
+                    self.tell(authority,'social:'+uuid4().hex,label+' pide desbloquear los mensajes: hazlo en Chrome.')
+                notes.append(label+': '+str(error))
+                continue
+            changed = self.archive('store_social', threads) or []
+            if platform == 'marketplace':
+                rows += [(datetime.now(timezone.utc),'Marketplace · '+t['listing'],t['name'],t['last_text']+' ('+str(t['last_time'] or '')+')') for t in threads]
+                continue
+            wanted = [t for t in threads if any(n.lower() in (t.get('name') or '').lower() for n in names)] if names else changed[:read_changed]
+            for thread in wanted[:5]:
+                try: messages = self.social.read(platform, thread['thread_id'])
+                except SocialError as error:
+                    notes.append(label+': '+str(error)); continue
+                self.archive('store_social', [], messages)
+                rows += [(m['ts'] or datetime.now(timezone.utc),label+' · '+(thread.get('name') or ''),'yo' if m.get('is_me') else (m.get('author') or ''),
+                    (m.get('text') or '')+(' ['+m['media']+']' if m.get('media') else '')) for m in messages]
+            if not names:
+                rows += [(datetime.now(timezone.utc),label+' · '+(t.get('name') or ''),t.get('name') or '',(t.get('last_text') or '')+' ('+str(t.get('last_time') or '')+')') for t in threads if t not in wanted]
+        return rows, notes
+
+    def request(self, authority, event, text):
+        current = self.load(authority,'outreach','active')
+        previous = current if current and current['state'] in ('planned','found') else None
+        try: plan = outreach.plan(text,previous)
+        except outreach.OutreachError as error: raise GeneralError(str(error)) from None
+        direct = [{'phone':p,'url':'','title':'indicado por ti'} for p in outreach.phones(text)]
+        if plan['message'] and self.gmail_enabled and not plan['email_reply']:
+            direct += [{'phone':a,'url':'','title':'correo indicado por ti','channel':'email',
+                'subject':plan['email_subject'] or 'Consulta'} for a in dict.fromkeys(gmail.EMAIL.findall(text))]
+        if plan['read_chats'] or (plan['read_email'] and self.gmail_enabled) or (plan['read_social'] and self.social is not None):
+            messages, notes = [], []
+            if plan['read_social'] and self.social is not None:
+                found, social_notes = self.social_sync(authority, platforms=plan['social_platforms'] or SOCIAL, names=plan['chat_names'])
+                messages += found; notes += social_notes
+            if plan['read_chats']:
+                chats = self.archive('read_messages', plan['chat_names'], plan['keywords'], plan['hours'], 300, outreach.phones(text))
+                if chats is None: notes.append('WhatsApp no disponible (¿Docker apagado?)')
+                messages += chats or []
+            if plan['read_email'] and self.gmail_enabled:
+                try:
+                    mails = gmail.search(plan['email_query'] or 'newer_than:1d', 30)
+                    self.archive('store_emails', mails)
+                    messages += [(m['ts'],'correo: '+m['subject'],m['from'],(m['body'][:1500] or m['snippet'])+
+                        (' [adjuntos: '+', '.join(a['filename'] for a in m['attachments'])+']' if m['attachments'] else '')) for m in mails]
+                except (gmail.GmailError, subprocess.TimeoutExpired, OSError):
+                    mails = []
+                    notes.append('Gmail no respondió')
+            messages.sort(key=lambda row: row[0], reverse=True)
+            with tempfile.TemporaryDirectory(prefix='radar-adjuntos-') as folder:
+                files = []
+                if plan['read_email'] and self.gmail_enabled and mails:
+                    try: files = gmail.save_attachments(sorted(mails,key=lambda m:m['ts'],reverse=True),folder)
+                    except (gmail.GmailError, subprocess.TimeoutExpired, OSError, KeyError, ValueError): notes.append('adjuntos no disponibles')
+                    if files: notes.append(str(len(files))+' adjuntos leídos')
+                try: reply, composed = outreach.answer(text, messages, files=files, files_dir=folder)
+                except outreach.OutreachError as error: raise GeneralError(str(error)) from None
+            self.tell_rich(authority,event+':read',reply+'\n\n*'+str(len(messages))+' mensajes leídos'+('; '+'; '.join(notes) if notes else '')+'*')
+            if composed and not plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct):
+                plan = {**plan, 'message': composed}  # written from what was just read; still needs the owner's approval
+            if not (plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct)):
+                return None
+        if plan['reply_social'] and plan['message'] and self.social is not None and 'x' in plan['social_platforms']:
+            targets = plan['send_to'] or plan['chat_names']
+            if not self.archive('resolve_social', 'x', targets):
+                self.social_sync(authority, platforms=('x',), read_changed=0)
+            direct += [{'phone':thread,'url':'','title':name+' (X)','channel':'x'} for thread,name in self.archive('resolve_social','x',targets) or ()]
+        if plan['email_reply'] and plan['message'] and self.gmail_enabled and plan['email_query']:
+            try: hit = gmail.search(plan['email_query'],1)
+            except (gmail.GmailError, subprocess.TimeoutExpired, OSError): hit = []
+            for m in hit:
+                subject = m['subject'] if m['subject'].lower().startswith('re:') else 'Re: '+m['subject']
+                direct.append({'phone':parseaddr(m['reply_to'] or m['from'])[1],'url':'','title':'responder «'+m['subject']+'»',
+                    'channel':'email','subject':subject,'thread':m['thread_id'],'in_reply_to':m['message_id']})
+        if plan['reply_to_chats'] and plan['message']:
+            direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in self.archive('resolve_chats', plan['send_to'] or plan['chat_names']) or ()]
+        if previous is None or plan['new_request']:
+            doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[]}
+        else:
+            drop = set(plan['exclude'])
+            found = [r for i,r in enumerate(previous['found'],1) if i not in drop]+direct
+            doc = {**previous,'plan':plan,'found':found,'state':'found' if found else previous['state']}
+        self.save(authority,'outreach','active',doc)
+        self.archive('request', doc['id'], text, doc['plan'])
+        self.show(authority,event,doc)
+
+    def show(self, authority, key, doc):
+        plan, found = doc['plan'], doc['found']
+        lines = [plan['reply']]
+        if doc['state'] == 'planned' and plan['search_query']:
+            lines.append('Búsqueda: '+plan['search_query'])
+        if doc['pages'] and not found:
+            lines.append('Fuentes:\n'+'\n'.join(title+'\n'+url for title,url in doc['pages']))
+        if found:
+            lines.append('Destinatarios:\n'+'\n'.join(
+                str(i)+'. '+(r['phone']+' · ' if r['phone'].startswith('+') or r.get('channel')=='email' else '')+r['title']
+                +('\n   Asunto: '+r['subject'] if r.get('channel')=='email' else '')+('\n   '+r['url'] if r['url'] else '') for i,r in enumerate(found,1)))
+        if plan['message']:
+            lines.append('Mensaje:\n'+plan['message'])
+        buttons = []
+        if plan['ready'] and found and plan['message']:
+            buttons.append(('Enviar a '+str(len(found)),'send'))
+        elif plan['ready'] and doc['state'] == 'planned' and plan['search_query']:
+            buttons.append(('Buscar','search'))
+        body = {'text':'\n\n'.join(lines+(['Para corregir, escríbelo.'] if buttons else []))[:4000]}
+        if buttons:
+            buttons.append(('Cancelar','cancel'))
+            body['buttons'] = []
+            for label,action in buttons:
+                token = 'gcb:a'+uuid4().hex
+                self.store.db.execute("INSERT INTO general_callbacks VALUES(?,?,?,'pilot',?,0)",(authority.owner_ref,authority.actor_ref,token,
+                    self.runtime.seal(authority.owner_ref,{'action':action,'doc':doc['id']})))
+                body['buttons'].append({'text':label,'callback_ref':token})
+        self.runtime.notify(authority.owner_ref,authority.actor_ref,body,key=key+':outreach:'+uuid4().hex)
+
+    def button(self, *, authority, value):
+        doc = self.load(authority,'outreach','active')
+        key = 'outreach:'+uuid4().hex
+        if doc is None or doc['id'] != value['doc'] or doc['state'] not in ('planned','found'):
+            return self.tell(authority,key,'Ese plan ya no está activo.')
+        if value['action'] == 'cancel':
+            self.save(authority,'outreach','active',{**doc,'state':'cancelled'})
+            return self.tell(authority,key,'Cancelado.')
+        if value['action'] == 'search':
+            if self.web is None:
+                return self.tell(authority,key,'OpenCLI no está instalado; no puedo buscar.')
+            try:
+                rows = ()
+                for query in dict.fromkeys(q for q in (doc['plan']['search_query'],doc['plan']['broad_query']) if q.strip()):
+                    try:
+                        found = self.web.search(query,20,timeout=90,max_bytes=2097152)[0]
+                        self.archive('search', doc['id'], query, found, outreach.phones)
+                        rows += found
+                    except SourceFailure:
+                        if not rows and query == doc['plan']['broad_query']: raise
+                if not rows: raise SourceFailure('no_results')
+            except SourceFailure:
+                return self.tell(authority,key,'La búsqueda en Google (OpenCLI) falló. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
+            doc = {**doc,'state':'found','found':outreach.candidates(rows),
+                'pages':[(content.decode('utf-8','replace').splitlines()[0].removeprefix('Title: ')[:120],url) for url,content in rows]}
+            if not doc['found']:
+                doc['plan'] = {**doc['plan'],'reply':'No encontré números publicados en '+str(len(rows))+' páginas.'}
+            self.save(authority,'outreach','active',doc)
+            return self.show(authority,key,doc)
+        queue = self.load(authority,'queue','active') or {'items':[],'next':None,'waiting':False}
+        bridge = next(iter(self.bridges))
+        queue['items'] += [{'phone':r['phone'],'text':doc['plan']['message'],'bridge':bridge,'request':doc['id'],'label':r['title'],
+            **{k:r[k] for k in ('channel','subject','thread','in_reply_to') if k in r}} for r in doc['found']]
+        self.save(authority,'queue','active',queue)
+        self.save(authority,'outreach','active',{**doc,'state':'queued'})
+        self.tell(authority,key,'En cola: '+str(len(doc['found']))+'. El bridge envía cada 2 s; contactos nuevos: máx. 8 cada 20 min y 30 al día. Las respuestas llegan a tu WhatsApp.')
+
+    def outreach_tick(self, authority):
+        queue = self.load(authority,'queue','active')
+        now = self.clock.now()
+        if not queue or not queue['items'] or (queue['next'] and parse(queue['next']) > now):
+            return
+        while queue['items']:
+            item = queue['items'].pop(0)
+            self.save(authority,'queue','active',queue)  # at-most-once: popped before the POST
+            if item.get('channel') == 'x':
+                state, detail = self.social.x_send(item['phone'],item['text']) if self.social else ('failed','opencli_missing')
+                item['bridge'] = 'x'
+            elif item.get('channel') == 'email':
+                state, detail, item['thread'] = gmail.send(item['phone'],item['subject'],item['text'],thread_id=item.get('thread'),in_reply_to=item.get('in_reply_to',''))
+                item['bridge'] = 'gmail'
+            else:
+                url = self.bridges.get(item.get('bridge',next(iter(self.bridges))))
+                state, detail = outreach.send(item['phone'],item['text'],url=url) if url else ('failed','bridge_not_configured')
+            if state.startswith('limit'):
+                queue['items'].insert(0,item)
+                queue['next'] = stamp(now+timedelta(minutes=60 if state=='limit_day' else 3))
+                if not queue['waiting']:
+                    self.tell(authority,'outreach:'+uuid4().hex,'Límite del bridge: '+detail+'. Quedan '+str(len(queue['items']))+'; reanudo solo.')
+                queue['waiting'] = True
+                break
+            queue['waiting'] = False
+            self.archive('outbound', item.get('request'), item.get('bridge'), item['phone'], item.get('label'), item['text'], state, detail, item.get('thread'))
+            self.tell(authority,'outreach:'+uuid4().hex,('Enviado a ' if state=='sent' else 'No enviado a ')+item['phone']+(': '+detail if detail else ''))
+        else:
+            queue['next'] = None
+        self.save(authority,'queue','active',queue)
+
     def input(self, route, *, runtime, authority, event_ref, text, lease):
         try:
-            if route == 'pilot_help': self.tell(authority,event_ref,HELP)
+            if route == 'request': self.request(authority,event_ref,text)
+            elif route == 'voice': self.voice(authority,event_ref,text)
+            elif route == 'pilot_help': self.tell(authority,event_ref,HELP)
             elif route == 'pilot_status': self.tell(authority,event_ref,canonical(runtime.status(authority.owner_ref,authority.actor_ref)))
             elif route == 'research_limits':
                 settings = limits(text,self.load(authority,'limits','active') or self.defaults)
@@ -371,6 +659,8 @@ class Pilot:
 
     def dispatch(self, owner, actor):
         authority = self.fresh(owner_ref=owner,actor_ref=actor)
+        self.outreach_tick(authority)
+        self.replies_tick(authority)
         rows = self.store.db.execute("SELECT pointer FROM general_callbacks WHERE owner=? AND actor=? AND kind='approve' AND used=1",(owner,actor)).fetchall()
         for (pointer,) in rows:
             screen = self.runtime.open(owner,pointer)
@@ -401,5 +691,5 @@ def build(*,store,vault,host_authority,clock):
     def handler(route):
         return lambda **values: controller.input(route,**values)
     return {'pilot_controller':controller,'capabilities':controller.capabilities,
-        'input_handlers':{route:handler(route) for route in PILOT_ROUTES.values()},
+        'input_handlers':{**{route:handler(route) for route in (*PILOT_ROUTES.values(),'request','voice')},'pilot_callback':controller.button},
         'handlers':{'search':controller.search_step,'inform':controller.inform_step}}

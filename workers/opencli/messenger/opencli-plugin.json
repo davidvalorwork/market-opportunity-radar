@@ -1,0 +1,6 @@
+{
+  "name": "messenger",
+  "version": "0.1.0",
+  "description": "READ-ONLY: list and read Facebook Messenger conversations from the owner's logged-in Chrome (no send)",
+  "opencli": ">=1.8.6"
+}

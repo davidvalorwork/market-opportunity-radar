@@ -1,0 +1,6 @@
+{
+  "name": "x-dm",
+  "version": "0.1.0",
+  "description": "List, read and send (one at a time) X DMs from the owner's logged-in Chrome (XChat UI)",
+  "opencli": ">=1.8.6"
+}

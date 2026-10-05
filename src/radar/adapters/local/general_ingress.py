@@ -94,14 +94,20 @@ class GeneralWebhook(Webhook):
     def _message(self, update_id, key, message):
         sender, chat = message.get('from', {}), message.get('chat', {})
         text = message.get('text')
+        voice = message.get('voice') or message.get('audio')
+        if isinstance(voice, dict) and isinstance(voice.get('file_id'), str) and len(voice['file_id']) < 256 and text is None:
+            # Voice note: the private input carries only Telegram's file id; the pilot downloads and transcribes it.
+            text, voice_route = voice['file_id'], True
+        else:
+            voice_route = False
         user = self._users.get(sender.get('id')) if isinstance(sender, dict) and type(sender.get('id')) is int else None
         if (isinstance(chat, dict) and type(chat.get('id')) is int and chat.get('type') == 'private' and user
                 and user.get('role') == 'owner' and consent.has_consent(user)
                 and 'contact' not in message and isinstance(text, str) and text.strip()):
             matched = COMMAND_TEXT.fullmatch(text.strip())
             name, rest = (matched.group(1).lower(), matched.group(2) or '') if matched else (None, text)
-            route = PILOT_ROUTES.get(name, 'tasks' if name == 'tareas' else 'request')
-            if name in PILOT_ROUTES or name in ('pedir', 'buscar', 'tareas') or (name is None and not text.lstrip().startswith('/')):
+            route = 'voice' if voice_route else PILOT_ROUTES.get(name, 'tasks' if name == 'tareas' else 'request')
+            if voice_route or name in PILOT_ROUTES or name in ('pedir', 'buscar', 'tareas') or (name is None and not text.lstrip().startswith('/')):
                 if len(text.encode('utf-8')) > 4096:
                     return self._reject(key, {'method': 'sendMessage', 'chat_id': chat['id'], 'text': 'Pedido demasiado largo.'})
                 token = INPUT.set({'text': rest, 'route': route})

@@ -1,0 +1,6 @@
+{
+  "name": "instagram-dm",
+  "version": "0.1.0",
+  "description": "List and read (read-only) Instagram Direct conversations from the owner's logged-in Chrome",
+  "opencli": ">=1.8.6"
+}

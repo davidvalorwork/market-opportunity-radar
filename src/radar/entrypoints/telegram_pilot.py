@@ -1,4 +1,4 @@
-"""Administrative setup/run for one local Telegram pilot; no cloud provisioning.
+﻿"""Administrative setup/run for one local Telegram pilot; no cloud provisioning.
 
 Secrets stay in this process. SSM access is explicit and read-only. Configuration,
 identities and state are generated under an operator-only directory, not Git.
@@ -132,7 +132,8 @@ def main(argv=None):
         allowlist_path = private_operator_path(root / 'allowlist.json')
         secret_path = private_operator_path(root / 'webhook-secret.txt')
         state_db = private_operator_path(root / 'control.sqlite', new_file=True)
-        api = BotApi(_token(args.ssm_token_ref, args.region))
+        # HTTP timeout must exceed the 20 s getUpdates long poll.
+        api = BotApi(_token(args.ssm_token_ref, args.region), timeout=35)
         wiring, runtime = from_config(state_db=state_db,
             phone_allowlist=PhoneAllowlist.from_file(allowlist_path), secret=secret_path.read_text(),
             config_path=config_path, api=api)
@@ -141,7 +142,7 @@ def main(argv=None):
             lease_seconds=config.get('polling_lease_seconds', 300),
             diagnostic=lambda code: print(json.dumps({'component': 'telegram', 'code': code}), flush=True))
         runner.prepare(take_over_bot=args.take_over_bot)
-        print(json.dumps({'pilot': 'running', 'llm_enabled': False}), flush=True)
+        print(json.dumps({'pilot': 'running', 'llm_enabled': True}), flush=True)
         runner.run(max_polls=args.max_polls)
         return 0
     except KeyboardInterrupt:

@@ -185,7 +185,7 @@ def test_consent_text_fits_is_html_safe_and_covers_required_points():
     bare = CONSENT_TEXT.replace("<b>", "").replace("</b>", "")
     assert "<" not in bare and ">" not in bare
     assert re.fullmatch(r"(?:[^&]|&(?:amp|lt|gt|quot|#x27);)*", bare, re.DOTALL)
-    for needle in (CONSENT_VERSION, "habilites", "descartan en memoria", "AWS", "fuera de Venezuela",
+    for needle in (CONSENT_VERSION, "historial", "mensajes de otras personas", "computadora", "Claude",
                    "no oficial", "bloquear", "apruebe", "/mis_datos", "/borrar", "/stop", "desvincula"):
         assert needle in CONSENT_TEXT, needle
     for data in (ACCEPT, DECLINE):

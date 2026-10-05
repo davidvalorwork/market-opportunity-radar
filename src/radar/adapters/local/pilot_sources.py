@@ -119,6 +119,31 @@ class AgentReachExa:
         return RawPage(items=items, next_cursor=str(round_no + 1), bytes_received=size)
 
 
+class OpenCliGoogle:
+    """Agent Reach's OpenCLI public Google adapter: titles/snippets only, no login or cookies.
+
+    Free and keyless (Exa's free MCP is rate limited). Snippets are untrusted page text.
+    """
+    def __init__(self, *, node, script, runner=bounded_call):
+        self.node, self.script, self.runner = str(Path(node).absolute()), str(Path(script).absolute()), runner
+        if not Path(self.node).is_file() or not Path(self.script).is_file():
+            raise ValueError('opencli_missing')
+
+    def search(self, query, count, *, timeout, max_bytes):
+        if not isinstance(query, str) or not query.strip() or len(query.encode()) > 2048:
+            raise SourceFailure(Code.INVALID)
+        raw = self.runner([self.node, self.script, 'google', 'search', query, '--limit', str(max(1, min(20, count))),
+            '--lang', 'es', '-f', 'json', '--window', 'background', '--keep-tab', 'false'], timeout=timeout, limit=max_bytes)
+        try:
+            rows = tuple((row['url'], ('Title: ' + str(row.get('title', '')) + '\n' + str(row.get('snippet', ''))).encode('utf-8'))
+                for row in json.loads(raw) if isinstance(row, dict) and urlsplit(str(row.get('url', ''))).scheme == 'https')
+        except (ValueError, TypeError, KeyError):
+            raise SourceFailure(Code.FAILURE) from None
+        if not rows:
+            raise SourceFailure(Code.FAILURE)
+        return rows, len(raw)
+
+
 class PilotCapabilities:
     def __init__(self, *, owner, clock, search=None):
         self.owner, self.clock, self.search = owner, clock, search

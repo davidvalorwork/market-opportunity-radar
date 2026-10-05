@@ -109,7 +109,8 @@ class TelegramDelivery:
             result = self.api.send_document(chat,'research.json',content,protect_content=True)
         else:
             text = body.get('text') or json.dumps(body.get('exact_row',body),ensure_ascii=False,sort_keys=True)
-            escaped = escape(text)
+            # 'html' bodies are already escaped/converted by the pilot (pilot_outreach.telegram_html).
+            escaped = text if body.get('html') is True else escape(text)
             buttons = body.get('buttons',())
             markup = {'inline_keyboard':[[{'text':button['text'],'callback_data':button['callback_ref']}] for button in buttons]} if buttons else None
             if len(escaped)>4096:

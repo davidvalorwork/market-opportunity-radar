@@ -102,6 +102,21 @@ class BotApi:
             raise RateLimited(method, status, description, retry_after=int(retry_after or 1))
         raise TelegramError(method, status, description)
 
+    def download_file(self, file_id, *, max_bytes=20 * 1024 * 1024):
+        """getFile + GET of the file (Bot API cap: 20 MB). Token never leaves this object or its errors."""
+        info = self.call("getFile", {"file_id": file_id})
+        path = info.get("file_path") if isinstance(info, dict) else None
+        if not isinstance(path, str) or ".." in path or (info.get("file_size") or 0) > max_bytes:
+            raise TelegramError("getFile", None, "file unavailable or too large")
+        try:
+            with urllib.request.urlopen(f"{self._base_url}/file/bot{self._token}/{path}", timeout=60) as response:  # noqa: S310
+                data = response.read(max_bytes + 1)
+        except Exception as exc:
+            raise TelegramError("downloadFile", None, self._redact(f"transport error: {type(exc).__name__}")) from None
+        if len(data) > max_bytes:
+            raise TelegramError("downloadFile", None, "file too large")
+        return data, path
+
     def send_message(self, chat_id, text, *, parse_mode="HTML", reply_markup=None,
                      protect_content=False, disable_link_preview=True):
         """Send text (1-4096 chars). Escape every external fragment with escape()."""

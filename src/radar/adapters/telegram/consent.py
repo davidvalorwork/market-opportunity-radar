@@ -13,7 +13,7 @@ never user data. Anything else under ``consent:`` is rejected by the webhook.
 
 from radar.adapters.telegram.bot_api import MAX_TEXT, escape
 
-CONSENT_VERSION = "2026-10-03.1"
+CONSENT_VERSION = "2026-10-05.1"
 CALLBACK_PREFIX = "consent:"
 ACCEPT = f"{CALLBACK_PREFIX}accept:{CONSENT_VERSION}"
 DECLINE = f"{CALLBACK_PREFIX}decline:{CONSENT_VERSION}"
@@ -21,10 +21,11 @@ UNGATED = {"start", "mis_datos", "borrar", "stop"}  # habeas data must work with
 
 _PARAGRAPHS = (
     "Antes de usar el radar, lee esto. Solo seguimos si aceptas.",
-    "1. Chats: solo se procesan los chats de WhatsApp que tú habilites. Los mensajes "
-    "de otras personas en chats no habilitados se descartan en memoria y no se guardan.",
-    "2. Dónde: tus datos y la sesión de tu WhatsApp vinculado se guardan cifrados en "
-    "servidores de AWS fuera de Venezuela.",
+    "1. Chats: el radar copia el historial de tu WhatsApp vinculado (todos tus chats, "
+    "incluidos los mensajes de otras personas) para que puedas consultarlo y analizarlo.",
+    "2. Dónde: todo se guarda en la computadora del propietario del radar, no en la nube: "
+    "el control cifrado y una copia de consulta sin cifrar solo accesible desde esa computadora. "
+    "Para entender tus pedidos y resumir mensajes, el texto necesario se envía a Claude (Anthropic).",
     "3. Riesgo: el radar usa un cliente de WhatsApp no oficial. WhatsApp puede "
     "bloquear el número que vincules. Si no aceptas ese riesgo, no vincules tu número.",
     "4. Envíos: ningún mensaje sale desde tu WhatsApp sin que el propietario del radar "

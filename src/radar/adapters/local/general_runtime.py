@@ -275,6 +275,8 @@ class GeneralRuntime:
                     raise GeneralError('scheduler_not_configured')
                 self.scheduler.set_state(owner_ref=owner, actor_ref=actor, schedule_ref=value['schedule_ref'], state=value['state'])
                 result = None
+            elif control[0] == 'pilot' and 'pilot_callback' in self.input_handlers:
+                result = self.input_handlers['pilot_callback'](authority=authority, value=value)
             else:
                 raise GeneralError('general_callback_unsupported')
             self.store.db.execute('UPDATE general_callbacks SET used=1 WHERE owner=? AND token=?', (owner, token))

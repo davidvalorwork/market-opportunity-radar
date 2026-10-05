@@ -1,0 +1,6 @@
+{
+  "name": "opencli-plugin-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module"
+}
