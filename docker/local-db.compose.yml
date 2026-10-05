@@ -1,0 +1,20 @@
+# Local analysis archive for the pilot: searches, requests, sends and synced WhatsApp messages.
+# Loopback only. Credentials live in .local/pilot-state/db.env (outside Git).
+# Start: docker compose -f docker/local-db.compose.yml up -d
+name: market-radar
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: radar-db
+    restart: unless-stopped
+    env_file: ../.local/pilot-state/db.env
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - radar-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
+      interval: 10s
+      retries: 5
+volumes:
+  radar-pgdata:
