@@ -23,7 +23,7 @@ PILOT_ROUTES = {
     'leer': 'whatsapp_read', 'responder': 'whatsapp_draft',
     'prueba_whatsapp': 'whatsapp_self_test', 'estado': 'pilot_status',
     'ayuda': 'pilot_help', 'investigar': 'research', 'mas': 'research_continue',
-    'refrescar': 'research_refresh', 'limites': 'research_limits',
+    'refrescar': 'research_refresh', 'limites': 'research_limits', 'limpiar': 'context_clear',
 }
 DDL = """
 CREATE TABLE IF NOT EXISTS general_inputs(owner TEXT,actor TEXT,ref TEXT,hash TEXT,pointer TEXT,deadline TEXT,state TEXT,task TEXT,reason TEXT,PRIMARY KEY(owner,ref));
