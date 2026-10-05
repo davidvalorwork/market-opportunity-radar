@@ -121,6 +121,9 @@ def plan(text, previous=None, *, model=claude_cli):
         document = model(SYSTEM, redact(user), SCHEMA)
     except Exception:
         raise OutreachError('ai_unavailable') from None
+    for key in ('search_query', 'broad_query', 'keywords'):
+        if isinstance(document.get(key), str):
+            document[key] = document[key].strip().strip('"\'').strip()  # the model sometimes returns '""'
     if set(document) != set(SCHEMA['required']) or not all(
             type(document[k]) is bool for k in ('ready', 'new_request', 'read_chats', 'reply_to_chats', 'read_email', 'email_reply',
                 'read_social', 'reply_social')) or not all(p in ('x', 'messenger', 'instagram', 'marketplace') for p in document['social_platforms']) or not all(

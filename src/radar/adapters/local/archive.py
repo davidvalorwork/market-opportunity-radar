@@ -9,6 +9,7 @@ never block the pilot.
 from pathlib import Path
 from datetime import timedelta
 from hashlib import sha1
+import re
 import sqlite3
 
 import psycopg
@@ -42,6 +43,21 @@ CREATE TABLE IF NOT EXISTS social_threads(platform TEXT, thread_key TEXT, thread
 CREATE TABLE IF NOT EXISTS social_messages(platform TEXT, thread_key TEXT, msg_key TEXT, author TEXT, is_me BOOLEAN, text TEXT,
     ts TIMESTAMPTZ, media TEXT, seen_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(platform, thread_key, msg_key));
 CREATE INDEX IF NOT EXISTS social_fts ON social_messages USING gin(to_tsvector('spanish', coalesce(text, '')));
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- One searchable label per chat: chat name + saved/profile/business names stored under its LID OR its phone JID.
+CREATE OR REPLACE VIEW wa_chat_labels AS
+SELECT c.session, c.jid, c.last_message_time,
+       coalesce(CASE WHEN c.name !~ '^[0-9+ ]*$' THEN c.name END, nullif(a.full_name, ''), nullif(b.full_name, ''),
+                nullif(a.push_name, ''), nullif(b.push_name, ''), nullif(a.business_name, ''), nullif(b.business_name, ''),
+                '+' || coalesce(l.pn, l2.pn), nullif(c.name, ''), c.jid) AS display,
+       lower(unaccent(concat_ws(' ', c.name, a.full_name, a.push_name, a.business_name, b.full_name, b.push_name, b.business_name))) AS label,
+       coalesce(l.pn, l2.pn) AS pn
+FROM wa_chats c
+LEFT JOIN wa_lid l ON l.session = c.session AND c.jid = l.lid || '@lid'
+LEFT JOIN wa_lid l2 ON l2.session = c.session AND c.jid = l2.pn || '@s.whatsapp.net'
+LEFT JOIN wa_contacts a ON a.session = c.session AND a.jid = c.jid
+LEFT JOIN wa_contacts b ON b.session = c.session AND b.jid = coalesce(l.pn || '@s.whatsapp.net', l2.lid || '@lid');
 CREATE TABLE IF NOT EXISTS sync_state(session TEXT PRIMARY KEY, last_ts TIMESTAMPTZ);
 -- Incoming messages after each successful send, matched by phone or its WhatsApp LID.
 CREATE OR REPLACE VIEW outreach_replies AS
@@ -144,29 +160,49 @@ class Archive:
         return grouped
 
     def read_messages(self, names, keywords, hours, limit=300, phones=()):
-        """Newest-first [(ts, chat, author, content)] by chat/contact name or phone, Spanish keywords and time window."""
+        """Newest-first [(ts, chat, author, content)]. Relaxes filters when nothing matches:
+        names+keywords -> keywords only -> names only (a recipient's name is often mistaken for a chat to read)."""
+        attempts = [(names, keywords)] + ([([], keywords)] if names and keywords else []) + ([(names, '')] if names and keywords else [])
+        for attempt_names, attempt_keywords in attempts:
+            rows = self._read(attempt_names, attempt_keywords, hours, limit, phones)
+            if rows:
+                return rows
+        return []
+
+    def _read(self, names, keywords, hours, limit, phones):
         hours = max(1, min(int(hours or 24), 24 * 365))
         digits = [p.lstrip('+') for p in phones]
+        # Any keyword matches (OR), accents ignored: "cotizacion tubo escape honda" finds "silenciador del Honda".
+        words = ' or '.join(w for w in re.findall(r'\w+', keywords or '') if len(w) > 2)
         return self.conn.execute('''
-            SELECT m.ts, coalesce(CASE WHEN c.name !~ '^[0-9+ ]*$' THEN c.name END, nullif(cc.full_name, ''), nullif(cc.push_name, ''),
-                   nullif(cc.business_name, ''), '+' || l.pn, nullif(c.name, ''), m.chat_jid),
+            SELECT m.ts, coalesce(lb.display, m.chat_jid),
                    CASE WHEN m.is_from_me THEN 'yo' ELSE coalesce(nullif(ct.full_name, ''), nullif(ct.push_name, ''), m.sender) END,
                    coalesce(nullif(m.content, ''), '[' || nullif(m.media_type, '') || ']', '')
             FROM wa_messages m
-            LEFT JOIN wa_chats c ON c.session = m.session AND c.jid = m.chat_jid
-            LEFT JOIN wa_contacts cc ON cc.session = m.session AND cc.jid = m.chat_jid
-            LEFT JOIN wa_lid l ON l.session = m.session AND m.chat_jid = l.lid || '@lid'
+            LEFT JOIN wa_chat_labels lb ON lb.session = m.session AND lb.jid = m.chat_jid
             LEFT JOIN LATERAL (SELECT full_name, push_name FROM wa_contacts x WHERE x.session = m.session
                 AND x.jid IN (m.sender || '@s.whatsapp.net', m.sender || '@lid') LIMIT 1) ct ON true
             WHERE m.ts > now() - make_interval(hours => %s)
               AND ((cardinality(%s::text[]) = 0 AND cardinality(%s::text[]) = 0)
-                   OR concat_ws(' ', c.name, cc.full_name, cc.push_name, cc.business_name) ILIKE ANY (SELECT '%%' || n || '%%' FROM unnest(%s::text[]) n)
-                   OR split_part(m.chat_jid, '@', 1) = ANY(%s) OR l.pn = ANY(%s))
-              AND (%s = '' OR to_tsvector('spanish', coalesce(m.content, '')) @@ websearch_to_tsquery('spanish', %s))
-            ORDER BY m.ts DESC LIMIT %s''', (hours, names, digits, names, digits, digits, keywords, keywords, limit)).fetchall()
+                   OR lb.label LIKE ANY (SELECT '%%' || lower(unaccent(n)) || '%%' FROM unnest(%s::text[]) n)
+                   OR split_part(m.chat_jid, '@', 1) = ANY(%s) OR lb.pn = ANY(%s))
+              AND (%s = '' OR to_tsvector('spanish', unaccent(coalesce(m.content, ''))) @@ websearch_to_tsquery('spanish', unaccent(%s)))
+            ORDER BY m.ts DESC LIMIT %s''', (hours, names, digits, names, digits, digits, words, words, limit)).fetchall()
 
     def resolve_chats(self, names, per_name=5):
-        """[(session, jid, display name)] of existing chats whose chat, saved-contact, profile or business name matches."""
+        """[(session, jid, display name)] of existing chats whose chat, saved-contact, profile or business name matches.
+        Accent/case-insensitive; falls back to the most similar names (voice transcripts: "Mija el Pérez" -> "Mihael Perez")."""
+        found = []
+        for name in names:
+            exact = self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels WHERE label LIKE '%%' || lower(unaccent(%s)) || '%%'
+                ORDER BY last_message_time DESC NULLS LAST LIMIT %s''', (name, per_name)).fetchall()
+            found += exact or self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels
+                WHERE word_similarity(lower(unaccent(%s)), label) > 0.45
+                ORDER BY word_similarity(lower(unaccent(%s)), label) DESC, last_message_time DESC NULLS LAST LIMIT 3''',
+                (name.replace(' ', ''), name.replace(' ', ''))).fetchall()
+        return list(dict.fromkeys(found))
+
+    def _old_resolve_chats(self, names, per_name=5):
         found = []
         for name in names:
             found += self.conn.execute('''SELECT c.session, c.jid, coalesce(CASE WHEN c.name !~ '^[0-9+ ]*$' THEN c.name END, nullif(cc.full_name, ''), nullif(cc.push_name, ''),
@@ -271,6 +307,15 @@ if __name__ == '__main__':
         assert archive.resolve_chats(['pedrito']) == [('principal', '111@lid', 'Taller Uno')]
         assert len(archive.read_messages([], '', 24, phones=['+584140000000'])) == 2  # phone chat + its LID chat
         assert archive.read_messages(['pérez'], '', 24)[0][3] == 'Son 40$'
+        archive.conn.execute("DELETE FROM wa_contacts WHERE jid = '111@lid'")
+        archive.conn.execute("UPDATE wa_chats SET name = '111' WHERE jid = '111@lid'")
+        archive.conn.execute("INSERT INTO wa_contacts VALUES ('principal', '584140000000@s.whatsapp.net', 'Mihael Pérez', 'Mihael', '')")
+        assert archive.resolve_chats(['mihael perez']) == [('principal', '111@lid', 'Mihael Pérez')]
+        assert archive.resolve_chats(['Mija el Pérez']) == [('principal', '111@lid', 'Mihael Pérez')]  # fuzzy (voice)
+        archive.conn.execute("INSERT INTO wa_messages VALUES ('principal','m9','111@lid','111','El silenciador del Hónda sale en 60',now(),false,'','')")
+        assert archive.read_messages([], 'cotización tubo escape honda', 24)[0][3].startswith('El silenciador')  # OR + accents
+        assert archive.read_messages(['Nadie Existe'], 'silenciador', 24)[0][1] == 'Mihael Pérez'    # relaxed names
+        assert archive.read_messages(['mihael'], 'zzzz', 24)[0][1] == 'Mihael Pérez'                  # relaxed keywords
         mail = {'id': 'g1', 'thread_id': 't1', 'ts': sent, 'from': 'a@x.com', 'to': 'yo@x.com', 'subject': 'Factura',
             'snippet': 's', 'body': 'Total 40$', 'labels': ['INBOX']}
         archive.store_emails([mail]); archive.store_emails([{**mail, 'labels': []}])
