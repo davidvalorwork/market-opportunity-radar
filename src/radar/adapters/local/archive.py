@@ -194,7 +194,11 @@ class Archive:
         Accent/case-insensitive; falls back to the most similar names (voice transcripts: "Mija el Pérez" -> "Mihael Perez")."""
         found = []
         for name in names:
-            found += self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels WHERE label LIKE '%%' || lower(unaccent(%s)) || '%%'
+            # One row per person: a contact's LID chat and phone chat share the same pn; keep the most recent.
+            found += self.conn.execute('''SELECT session, jid, display FROM (
+                    SELECT DISTINCT ON (session, coalesce(pn, jid)) session, jid, display, last_message_time FROM wa_chat_labels
+                    WHERE label LIKE '%%' || lower(unaccent(%s)) || '%%'
+                    ORDER BY session, coalesce(pn, jid), last_message_time DESC NULLS LAST) person
                 ORDER BY last_message_time DESC NULLS LAST LIMIT %s''', (name, per_name)).fetchall()
         return list(dict.fromkeys(found))
 
@@ -202,14 +206,15 @@ class Archive:
         """Closest chats by character similarity (voice: "Mijael" -> "Mihael") for the owner to pick:
         [(session, jid, display, phone or None, score)], best first."""
         return self.conn.execute('''SELECT session, jid, display, pn, score FROM (
-                SELECT session, jid, display, pn, last_message_time,
+                SELECT DISTINCT ON (session, coalesce(pn, jid)) session, jid, display, pn, last_message_time,
                        -- every word of the asked name counts: "mijael perez" ranks "mihael perez" above other "perez"
                        greatest(word_similarity(q, label),
                                 (SELECT avg(best) FROM (SELECT max(similarity(w, label_word)) AS best
                                  FROM unnest(string_to_array(q, ' ')) w, unnest(string_to_array(label, ' ')) label_word
                                  WHERE w <> '' GROUP BY w) per_word)) AS score
                 FROM wa_chat_labels, lower(unaccent(%s)) q
-                WHERE label <> '') ranked
+                WHERE label <> ''
+                ORDER BY session, coalesce(pn, jid), last_message_time DESC NULLS LAST) ranked
             WHERE score > 0.2 ORDER BY score DESC, last_message_time DESC NULLS LAST LIMIT %s''', (name, limit)).fetchall()
 
     def _old_resolve_chats(self, names, per_name=5):

@@ -34,9 +34,11 @@ import time
 
 
 SOURCE = 'source:exaweb'
+CONTEXT_LIMIT = 12000  # characters of recent conversation kept for the model; cleared (and announced) when exceeded
 # Inboxes synced and read; Messenger/Instagram plugins are read-only (missing plugin = per-platform note, not a crash).
 SOCIAL = ('x', 'messenger', 'instagram', 'marketplace')
 HELP = ('Escribe tu pedido en texto libre: la IA arma búsqueda y mensaje; tú apruebas antes de enviar.\n'
+    '/limpiar: borrar la memoria de la conversación (tus datos guardados no se tocan)\n'
     '/vincular +numero: vincular TU WhatsApp por código\n'
     '/chats: listar chats; /leer alias: sincronizar sólo ese chat\n'
     '/responder alias texto: preparar respuesta para aprobar\n'
@@ -387,10 +389,28 @@ class Pilot:
                 rows += [(datetime.now(timezone.utc),label+' · '+(t.get('name') or ''),t.get('name') or '',(t.get('last_text') or '')+' ('+str(t.get('last_time') or '')+')') for t in threads if t not in wanted]
         return rows, notes
 
+    def context(self, authority):
+        return '\n'.join(('Usuario: ' if turn['role'] == 'user' else 'Asistente: ')+turn['text'] for turn in self.load(authority,'context','active') or [])
+
+    def remember(self, authority, role, text):
+        """Rolling conversation memory (sealed). When it exceeds CONTEXT_LIMIT it is cleared and the owner is told."""
+        turns = (self.load(authority,'context','active') or []) + [{'role':role,'text':text[:3000]}]
+        if sum(len(turn['text']) for turn in turns) > CONTEXT_LIMIT:
+            turns = [turns[-1]]
+            self.tell(authority,'context:'+uuid4().hex,'🧹 Limpié el contexto de la conversación porque se llenó. '
+                'Sigo con tu último pedido; tus chats, correos y datos guardados no se tocaron.')
+        self.save(authority,'context','active',turns)
+
+    def clear_context(self, authority, event):
+        self.save(authority,'context','active',[])
+        self.tell(authority,event+':context','🧹 Contexto limpio. Empezamos de cero; tus datos guardados no se tocaron.')
+
     def request(self, authority, event, text):
         current = self.load(authority,'outreach','active')
-        previous = current if current and current['state'] in ('planned','found') else None
-        try: plan = outreach.plan(text,previous)
+        previous = current if current and (current['state'] in ('planned','found') or current.get('summary')) else None
+        context = self.context(authority)
+        self.remember(authority,'user',text)
+        try: plan = outreach.plan(text,previous,context=context)
         except outreach.OutreachError as error: raise GeneralError(str(error)) from None
         direct = [{'phone':p,'url':'','title':'indicado por ti'} for p in outreach.phones(text)]
         if plan['message'] and self.gmail_enabled and not plan['email_reply']:
@@ -421,14 +441,17 @@ class Pilot:
                     try: files = gmail.save_attachments(sorted(mails,key=lambda m:m['ts'],reverse=True),folder)
                     except (gmail.GmailError, subprocess.TimeoutExpired, OSError, KeyError, ValueError): notes.append('adjuntos no disponibles')
                     if files: notes.append(str(len(files))+' adjuntos leídos')
-                try: reply, composed = outreach.answer(text, messages, files=files, files_dir=folder)
+                try: reply, composed = outreach.answer(text, messages, files=files, files_dir=folder, context=context)
                 except outreach.OutreachError as error: raise GeneralError(str(error)) from None
+            self.remember(authority,'assistant',reply)
             self.tell_rich(authority,event+':read',reply+'\n\n*'+str(len(messages))+' mensajes leídos'+('; '+'; '.join(notes) if notes else '')+'*')
             if composed and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct):
                 plan = {**plan, 'message': composed}  # written from what was just read; still needs the owner's approval
             if not (plan['message'] and (plan['reply_to_chats'] or plan['email_reply'] or plan['reply_social'] or direct)):
                 return None
-        if plan['reply_social'] and plan['message'] and self.social is not None and 'x' in plan['social_platforms']:
+        # Recipients resolve whenever sending is intended, even if the message is written later (after research).
+        will_write = bool(plan['message'] or plan['search_query'])
+        if plan['reply_social'] and will_write and self.social is not None and 'x' in plan['social_platforms']:
             targets = plan['send_to'] or plan['chat_names']
             if not self.archive('resolve_social', 'x', targets):
                 self.social_sync(authority, platforms=('x',), read_changed=0)
@@ -440,7 +463,7 @@ class Pilot:
                 subject = m['subject'] if m['subject'].lower().startswith('re:') else 'Re: '+m['subject']
                 direct.append({'phone':parseaddr(m['reply_to'] or m['from'])[1],'url':'','title':'responder «'+m['subject']+'»',
                     'channel':'email','subject':subject,'thread':m['thread_id'],'in_reply_to':m['message_id']})
-        if plan['reply_to_chats'] and plan['message']:
+        if plan['reply_to_chats'] and will_write:
             targets = plan['send_to'] or plan['chat_names']
             chats = self.archive('resolve_chats', targets) or []
             if not chats:
@@ -452,19 +475,25 @@ class Pilot:
                 if not options:
                     return self.tell(authority,event+':nochat','No encontré un chat de WhatsApp parecido a «'+', '.join(targets)+
                         '». Escríbeme el nombre como lo tienes guardado o su número.')
-                doc = {'id':uuid4().hex,'state':'choosing','plan':plan,'found':direct,'pages':[],'options':options}
+                doc = {'id':uuid4().hex,'state':'choosing','plan':plan,'found':direct,'pages':[],'options':options,'request':text}
+                if plan['search_query']:
+                    doc = {**doc,'found':[],'pending':direct}
                 self.save(authority,'outreach','active',doc)
                 self.archive('request', doc['id'], text, doc['plan'])
                 return self.ask_choice(authority,event,doc,', '.join(targets))
             direct += [{'phone':jid,'url':'','title':name+' (chat existente)'} for _,jid,name in chats]
         if previous is None or plan['new_request']:
-            doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[]}
+            doc = {'id':uuid4().hex,'state':'found' if direct else 'planned','plan':plan,'found':direct,'pages':[],'request':text}
+            if plan['search_query'] and direct and (plan['reply_to_chats'] or plan['send_to'] or plan['reply_social']):
+                # "investiga X y mándaselo a Y": recipients are known, the message must be written from the research.
+                doc = {**doc,'state':'planned','found':[],'pending':direct}
         else:
             drop = set(plan['exclude'])
             found = [r for i,r in enumerate(previous['found'],1) if i not in drop]+direct
             doc = {**previous,'plan':plan,'found':found,'state':'found' if found else previous['state']}
         self.save(authority,'outreach','active',doc)
         self.archive('request', doc['id'], text, doc['plan'])
+        self.remember(authority,'assistant',plan['reply']+(' Mensaje propuesto: '+plan['message'] if plan['message'] else ''))
         self.show(authority,event,doc)
 
     def show(self, authority, key, doc):
@@ -520,7 +549,10 @@ class Pilot:
             if doc['state'] != 'choosing' or not 0 <= value.get('index', -1) < len(doc['options']):
                 return self.tell(authority,key,'Esa opción ya no está activa.')
             chosen = {k:v for k,v in doc['options'][value['index']].items() if k != 'label'}
-            doc = {**doc,'state':'found','found':doc['found']+[chosen],'options':[]}
+            if 'pending' in doc:  # research still to do before writing the message
+                doc = {**doc,'state':'planned','pending':doc['pending']+[chosen],'options':[]}
+            else:
+                doc = {**doc,'state':'found','found':doc['found']+[chosen],'options':[]}
             self.save(authority,'outreach','active',doc)
             return self.show(authority,key,doc)
         if value['action'] == 'cancel':
@@ -541,10 +573,25 @@ class Pilot:
                 if not rows: raise SourceFailure('no_results')
             except SourceFailure:
                 return self.tell(authority,key,'La búsqueda en Google (OpenCLI) falló. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
-            doc = {**doc,'state':'found','found':outreach.candidates(rows),
-                'pages':[(content.decode('utf-8','replace').splitlines()[0].removeprefix('Title: ')[:120],url) for url,content in rows]}
-            if not doc['found']:
-                doc['plan'] = {**doc['plan'],'reply':'No encontré números publicados en '+str(len(rows))+' páginas.'}
+            pages = [(content.decode('utf-8','replace').splitlines()[0].removeprefix('Title: ')[:120],url) for url,content in rows]
+            if 'pending' in doc or not doc['plan']['message']:
+                now = datetime.now(timezone.utc)
+                results = [(now,'web: '+title,url,content.decode('utf-8','replace')[:1500]) for (title,url),(_,content) in zip(pages,rows)]
+                try: summary, composed = outreach.answer(doc.get('request') or doc['plan']['search_query'], results)
+                except outreach.OutreachError as error: return self.tell(authority,key,'No pude resumir la búsqueda: '+str(error))
+                sources = '\n'.join('• '+title+' — '+url for title,url in list(dict.fromkeys(pages))[:6])
+                self.remember(authority,'assistant',summary)
+                self.tell_rich(authority,key+':summary',summary+'\n\n**Fuentes principales**\n'+sources)
+                if 'pending' not in doc:  # research only: nothing to send; keep the summary for "envíale el resumen a…"
+                    self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
+                    return None
+                doc = {**doc,'state':'found','found':doc['pending'],'pages':pages,
+                    'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':''}}
+                doc.pop('pending')
+            else:
+                doc = {**doc,'state':'found','found':outreach.candidates(rows),'pages':pages}
+                if not doc['found']:
+                    doc['plan'] = {**doc['plan'],'reply':'No encontré números publicados en '+str(len(rows))+' páginas.'}
             self.save(authority,'outreach','active',doc)
             return self.show(authority,key,doc)
         queue = self.load(authority,'queue','active') or {'items':[],'next':None,'waiting':False}
@@ -581,7 +628,7 @@ class Pilot:
                 break
             queue['waiting'] = False
             self.archive('outbound', item.get('request'), item.get('bridge'), item['phone'], item.get('label'), item['text'], state, detail, item.get('thread'))
-            self.tell(authority,'outreach:'+uuid4().hex,('Enviado a ' if state=='sent' else 'No enviado a ')+item['phone']+(': '+detail if detail else ''))
+            self.tell(authority,'outreach:'+uuid4().hex,('Enviado a ' if state=='sent' else 'No enviado a ')+(item.get('label') if item.get('label') and not item['phone'].startswith('+') else item['phone'])+(': '+detail if detail else ''))
         else:
             queue['next'] = None
         self.save(authority,'queue','active',queue)
@@ -590,6 +637,7 @@ class Pilot:
         try:
             if route == 'request': self.request(authority,event_ref,text)
             elif route == 'voice': self.voice(authority,event_ref,text)
+            elif route == 'context_clear': self.clear_context(authority,event_ref)
             elif route == 'pilot_help': self.tell(authority,event_ref,HELP)
             elif route == 'pilot_status': self.tell(authority,event_ref,canonical(runtime.status(authority.owner_ref,authority.actor_ref)))
             elif route == 'research_limits':
