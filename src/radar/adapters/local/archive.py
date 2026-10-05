@@ -194,13 +194,23 @@ class Archive:
         Accent/case-insensitive; falls back to the most similar names (voice transcripts: "Mija el Pérez" -> "Mihael Perez")."""
         found = []
         for name in names:
-            exact = self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels WHERE label LIKE '%%' || lower(unaccent(%s)) || '%%'
+            found += self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels WHERE label LIKE '%%' || lower(unaccent(%s)) || '%%'
                 ORDER BY last_message_time DESC NULLS LAST LIMIT %s''', (name, per_name)).fetchall()
-            found += exact or self.conn.execute('''SELECT session, jid, display FROM wa_chat_labels
-                WHERE word_similarity(lower(unaccent(%s)), label) > 0.45
-                ORDER BY word_similarity(lower(unaccent(%s)), label) DESC, last_message_time DESC NULLS LAST LIMIT 3''',
-                (name.replace(' ', ''), name.replace(' ', ''))).fetchall()
         return list(dict.fromkeys(found))
+
+    def similar_chats(self, name, limit=5):
+        """Closest chats by character similarity (voice: "Mijael" -> "Mihael") for the owner to pick:
+        [(session, jid, display, phone or None, score)], best first."""
+        return self.conn.execute('''SELECT session, jid, display, pn, score FROM (
+                SELECT session, jid, display, pn, last_message_time,
+                       -- every word of the asked name counts: "mijael perez" ranks "mihael perez" above other "perez"
+                       greatest(word_similarity(q, label),
+                                (SELECT avg(best) FROM (SELECT max(similarity(w, label_word)) AS best
+                                 FROM unnest(string_to_array(q, ' ')) w, unnest(string_to_array(label, ' ')) label_word
+                                 WHERE w <> '' GROUP BY w) per_word)) AS score
+                FROM wa_chat_labels, lower(unaccent(%s)) q
+                WHERE label <> '') ranked
+            WHERE score > 0.2 ORDER BY score DESC, last_message_time DESC NULLS LAST LIMIT %s''', (name, limit)).fetchall()
 
     def _old_resolve_chats(self, names, per_name=5):
         found = []
@@ -275,7 +285,7 @@ if __name__ == '__main__':
     dsn = dsn_from_env_file(Path(__file__).resolve().parents[4] / '.local' / 'pilot-state' / 'db.env')
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute('DROP SCHEMA IF EXISTS selfcheck CASCADE; CREATE SCHEMA selfcheck')
-    archive = Archive(dsn + ' options=-csearch_path=selfcheck')
+    archive = Archive(dsn + ' options=-csearch_path=selfcheck,public')  # extensions live in public
     with tempfile.TemporaryDirectory() as folder:
         sent = datetime.now().astimezone().replace(microsecond=0) - timedelta(minutes=10)
         db = sqlite3.connect(Path(folder) / 'messages.db')
@@ -311,7 +321,9 @@ if __name__ == '__main__':
         archive.conn.execute("UPDATE wa_chats SET name = '111' WHERE jid = '111@lid'")
         archive.conn.execute("INSERT INTO wa_contacts VALUES ('principal', '584140000000@s.whatsapp.net', 'Mihael Pérez', 'Mihael', '')")
         assert archive.resolve_chats(['mihael perez']) == [('principal', '111@lid', 'Mihael Pérez')]
-        assert archive.resolve_chats(['Mija el Pérez']) == [('principal', '111@lid', 'Mihael Pérez')]  # fuzzy (voice)
+        assert archive.resolve_chats(['Mijael Pérez']) == []
+        assert archive.similar_chats('Mijael Pérez')[0][:4] == ('principal', '111@lid', 'Mihael Pérez', '584140000000')  # voice typo
+        assert archive.similar_chats('Mijael')[0][2] == 'Mihael Pérez'
         archive.conn.execute("INSERT INTO wa_messages VALUES ('principal','m9','111@lid','111','El silenciador del Hónda sale en 60',now(),false,'','')")
         assert archive.read_messages([], 'cotización tubo escape honda', 24)[0][3].startswith('El silenciador')  # OR + accents
         assert archive.read_messages(['Nadie Existe'], 'silenciador', 24)[0][1] == 'Mihael Pérez'    # relaxed names
