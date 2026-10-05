@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import shutil
 import subprocess
+from threading import Event, Thread
 
 from radar.adapters.local.general_bindings import from_config, private_operator_path
 from radar.adapters.local.polling import PollingRunner
@@ -103,6 +104,26 @@ def _token(parameter, region):
     return client.get_parameter(Name=parameter, WithDecryption=True)['Parameter']['Value']
 
 
+def _revision(repo):
+    try:
+        result = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repo, capture_output=True, timeout=10, check=False)
+        return result.stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def watch_revision(stop, repo, *, interval=10, revision=_revision):
+    """Clean restart on new committed code: stop polling (lease released) so the launcher starts the new version."""
+    start = revision(repo)
+    def loop():
+        while not stop.wait(interval):
+            current = revision(repo)
+            if start and current and current != start:
+                print(json.dumps({'pilot': 'reload', 'reason': 'new_commit'}), flush=True)
+                stop.set()
+    Thread(target=loop, daemon=True).start()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('setup', 'run'))
@@ -143,7 +164,9 @@ def main(argv=None):
             diagnostic=lambda code: print(json.dumps({'component': 'telegram', 'code': code}), flush=True))
         runner.prepare(take_over_bot=args.take_over_bot)
         print(json.dumps({'pilot': 'running', 'llm_enabled': True}), flush=True)
-        runner.run(max_polls=args.max_polls)
+        stop = Event()
+        watch_revision(stop, Path(__file__).resolve().parents[3])
+        runner.run(max_polls=args.max_polls, stop=stop)
         return 0
     except KeyboardInterrupt:
         return 0
