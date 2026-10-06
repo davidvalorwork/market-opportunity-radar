@@ -551,13 +551,14 @@ class Pilot:
         buttons = []
         if plan['ready'] and found and plan['message']:
             buttons.append(('Enviar a '+str(len(found)),'send'))
-        elif plan['ready'] and doc['state'] == 'planned' and batch:
-            buttons.append(('Buscar','search'))
+        autostart = plan['ready'] and doc['state'] == 'planned' and bool(batch)
+        if autostart:
+            lines.append('*Empiezo a buscar ya. Si quieres cambiar algo, escríbelo o toca Cancelar.*')
         chunks = outreach.telegram_html('\n\n'.join(lines+(['*Para corregir, escríbelo.*'] if buttons else [])))
         for index, chunk in enumerate(chunks[:-1]):
             self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':chunk,'html':True},key=key+':outreach:'+uuid4().hex+':'+str(index))
         body = {'text':chunks[-1],'html':True}
-        if buttons:
+        if buttons or autostart:
             buttons.append(('Cancelar','cancel'))
             body['buttons'] = []
             for label,action in buttons:
@@ -566,6 +567,8 @@ class Pilot:
                     self.runtime.seal(authority.owner_ref,{'action':action,'doc':doc['id']})))
                 body['buttons'].append({'text':label,'callback_ref':token})
         self.runtime.notify(authority.owner_ref,authority.actor_ref,body,key=key+':outreach:'+uuid4().hex)
+        if autostart:
+            self.button(authority=authority,value={'action':'search','doc':doc['id']})
 
     def ask_choice(self, authority, event, doc, asked):
         """Owner picks the intended chat among the most similar names (one button each)."""
@@ -586,6 +589,9 @@ class Pilot:
         doc = self.load(authority,'outreach','active')
         key = 'outreach:'+uuid4().hex
         if doc is not None and doc['id'] == value['doc'] and doc['state'] == 'researching':
+            if value['action'] == 'cancel':
+                self.save(authority,'outreach','active',{**doc,'state':'cancelled','queued':[]})
+                return self.tell(authority,key,'Investigación cancelada.')
             return self.tell(authority,key,'Sigo investigando; te aviso cuando tenga el resumen.')
         if doc is None or doc['id'] != value['doc'] or doc['state'] not in ('planned','found','choosing'):
             return self.tell(authority,key,'Ese plan ya no está activo.')
