@@ -551,14 +551,13 @@ class Pilot:
         buttons = []
         if plan['ready'] and found and plan['message']:
             buttons.append(('Enviar a '+str(len(found)),'send'))
-        autostart = plan['ready'] and doc['state'] == 'planned' and bool(batch)
-        if autostart:
-            lines.append('*Empiezo a buscar ya. Si quieres cambiar algo, escríbelo o toca Cancelar.*')
+        elif plan['ready'] and doc['state'] == 'planned' and batch:
+            buttons.append(('Buscar','search'))
         chunks = outreach.telegram_html('\n\n'.join(lines+(['*Para corregir, escríbelo.*'] if buttons else [])))
         for index, chunk in enumerate(chunks[:-1]):
             self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':chunk,'html':True},key=key+':outreach:'+uuid4().hex+':'+str(index))
         body = {'text':chunks[-1],'html':True}
-        if buttons or autostart:
+        if buttons:
             buttons.append(('Cancelar','cancel'))
             body['buttons'] = []
             for label,action in buttons:
@@ -567,8 +566,6 @@ class Pilot:
                     self.runtime.seal(authority.owner_ref,{'action':action,'doc':doc['id']})))
                 body['buttons'].append({'text':label,'callback_ref':token})
         self.runtime.notify(authority.owner_ref,authority.actor_ref,body,key=key+':outreach:'+uuid4().hex)
-        if autostart:
-            self.button(authority=authority,value={'action':'search','doc':doc['id']})
 
     def ask_choice(self, authority, event, doc, asked):
         """Owner picks the intended chat among the most similar names (one button each)."""
