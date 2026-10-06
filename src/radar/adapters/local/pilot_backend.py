@@ -410,8 +410,14 @@ class Pilot:
         previous = current if current and (current['state'] in ('planned','found') or current.get('summary')) else None
         context = self.context(authority)
         self.remember(authority,'user',text)
-        try: plan = outreach.plan(text,previous,context=context)
+        try: plan = outreach.plan(text,previous,context=context,last_research=self.load(authority,'research','last'))
         except outreach.OutreachError as error: raise GeneralError(str(error)) from None
+        if plan['confirm'] and current and current['state'] in ('planned','found','choosing'):
+            # "sí / dale" after a plan: run the search; sending always needs the button (exact recipients + text).
+            if current['state'] == 'planned' and outreach.search_batch(current['plan']):
+                return self.button(authority=authority,value={'action':'search','doc':current['id']})
+            return self.tell(authority,event+':confirm','Toca '+('una de las opciones' if current['state']=='choosing' else 'el botón Enviar')+
+                ' del mensaje anterior para confirmar destinatarios y texto exactos.')
         direct = [{'phone':p,'url':'','title':'indicado por ti'} for p in outreach.phones(text)]
         if plan['message'] and self.gmail_enabled and not plan['email_reply']:
             direct += [{'phone':a,'url':'','title':'correo indicado por ti','channel':'email',
@@ -502,21 +508,24 @@ class Pilot:
         lines = [plan['reply']]
         batch = outreach.search_batch(plan)
         if doc['state'] == 'planned' and batch:
-            lines.append('Búsquedas ('+str(len(batch))+'):\n'+'\n'.join('• '+outreach.SOURCE_NAMES[s]+': '+q for s,q in batch))
+            lines.append('**Búsquedas ('+str(len(batch))+')**\n'+'\n'.join('• '+outreach.SOURCE_NAMES[s]+': '+q for s,q in batch))
         if doc['pages'] and not found:
-            lines.append('Fuentes:\n'+'\n'.join(title+'\n'+url for title,url in doc['pages']))
+            lines.append('**Fuentes**\n'+'\n'.join('• '+title+' — '+url for title,url in doc['pages'][:8]))
         if found:
-            lines.append('Destinatarios:\n'+'\n'.join(
+            lines.append('**Destinatarios**\n'+'\n'.join(
                 str(i)+'. '+(r['phone']+' · ' if r['phone'].startswith('+') or r.get('channel')=='email' else '')+r['title']
                 +('\n   Asunto: '+r['subject'] if r.get('channel')=='email' else '')+('\n   '+r['url'] if r['url'] else '') for i,r in enumerate(found,1)))
         if plan['message']:
-            lines.append('Mensaje:\n'+plan['message'])
+            lines.append('**Mensaje** (así se verá en el chat):\n'+plan['message'])
         buttons = []
         if plan['ready'] and found and plan['message']:
             buttons.append(('Enviar a '+str(len(found)),'send'))
         elif plan['ready'] and doc['state'] == 'planned' and batch:
             buttons.append(('Buscar','search'))
-        body = {'text':'\n\n'.join(lines+(['Para corregir, escríbelo.'] if buttons else []))[:4000]}
+        chunks = outreach.telegram_html('\n\n'.join(lines+(['*Para corregir, escríbelo.*'] if buttons else [])))
+        for index, chunk in enumerate(chunks[:-1]):
+            self.runtime.notify(authority.owner_ref,authority.actor_ref,{'text':chunk,'html':True},key=key+':outreach:'+uuid4().hex+':'+str(index))
+        body = {'text':chunks[-1],'html':True}
         if buttons:
             buttons.append(('Cancelar','cancel'))
             body['buttons'] = []
@@ -591,6 +600,7 @@ class Pilot:
                 except outreach.OutreachError as error: return self.tell(authority,key,'No pude resumir la búsqueda: '+str(error))
                 sources = '\n'.join('• '+title+' — '+url for title,url in list(dict.fromkeys(pages))[:6])
                 self.remember(authority,'assistant',summary)
+                self.save(authority,'research','last',{'request':doc.get('request') or doc['plan']['search_query'],'summary':summary})
                 self.tell_rich(authority,key+':summary',summary+'\n\n**Fuentes principales**\n'+sources)
                 if 'pending' not in doc:  # research only: nothing to send; keep the summary for "envíale el resumen a…"
                     self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
@@ -621,14 +631,15 @@ class Pilot:
             item = queue['items'].pop(0)
             self.save(authority,'queue','active',queue)  # at-most-once: popped before the POST
             if item.get('channel') == 'x':
-                state, detail = self.social.x_send(item['phone'],item['text']) if self.social else ('failed','opencli_missing')
+                state, detail = self.social.x_send(item['phone'],outreach.channel_text(item['text'],'plain')) if self.social else ('failed','opencli_missing')
                 item['bridge'] = 'x'
             elif item.get('channel') == 'email':
-                state, detail, item['thread'] = gmail.send(item['phone'],item['subject'],item['text'],thread_id=item.get('thread'),in_reply_to=item.get('in_reply_to',''))
+                state, detail, item['thread'] = gmail.send(item['phone'],item['subject'],outreach.channel_text(item['text'],'plain'),
+                    thread_id=item.get('thread'),in_reply_to=item.get('in_reply_to',''))
                 item['bridge'] = 'gmail'
             else:
                 url = self.bridges.get(item.get('bridge',next(iter(self.bridges))))
-                state, detail = outreach.send(item['phone'],item['text'],url=url) if url else ('failed','bridge_not_configured')
+                state, detail = outreach.send(item['phone'],outreach.channel_text(item['text'],'whatsapp'),url=url) if url else ('failed','bridge_not_configured')
             if state.startswith('limit'):
                 queue['items'].insert(0,item)
                 queue['next'] = stamp(now+timedelta(minutes=60 if state=='limit_day' else 3))

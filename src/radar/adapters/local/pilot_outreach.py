@@ -54,23 +54,28 @@ números publicados; escribir a números que él te dé.
   google (web), yahoo (web alternativa), facebook (negocios y páginas locales, muy usado en Venezuela), instagram (cuentas
   de negocios; query = nombre o rubro corto), x (opiniones, noticias, tendencias), youtube (reseñas, tutoriales),
   reddit (opiniones internacionales), threads, tiktok. No repitas search_query ni broad_query.
-- message: mensaje de WhatsApp listo para enviar a cada contacto, en español, cordial y breve, \
+- message: texto a enviar. Puedes usar **negrita** para títulos y viñetas "- "; el sistema lo convierte al formato
+  de cada canal (WhatsApp, correo, X). Sin tablas ni enlaces en formato Markdown.
+- message (contenido): mensaje de WhatsApp listo para enviar a cada contacto, en español, cordial y breve, \
 en primera persona como el usuario. Usa SOLO datos que el usuario dio; no inventes datos, precios ni nombres. \
 "" si el pedido no implica escribirle a nadie.
 - ready: true si ya se puede buscar o escribir. false SOLO si falta un dato imprescindible; entonces reply pregunta sólo eso.
-- reply: una frase para el usuario resumiendo el plan; él aprueba antes de buscar y antes de enviar.
+- reply: una frase resumiendo el plan. NO preguntes "¿confirmas?": el usuario aprueba con los botones (Buscar / Enviar).
+- confirm: true si el texto SOLO acepta el plan anterior sin cambiarlo ("sí", "dale", "ok", "hazlo", "busca", "procede");
+  en ese caso devuelve el plan anterior igual.
 - new_request: true si el texto es un pedido nuevo, no una corrección del plan anterior (o si no hay plan anterior).
 - exclude: posiciones (desde 1) de la lista de destinatarios que el usuario pidió quitar; [] si ninguna.
 Si recibes un plan anterior y una corrección, devuelve el plan completo corregido.
-Si hay "Resumen de la última investigación" y pide enviarlo/compartirlo: new_request true, search_query "",
-reply_to_chats true, send_to con el destinatario, y message = ese resumen completo adaptado como mensaje de WhatsApp
-en primera persona (con los datos concretos, no solo un saludo).
+Si hay "Resumen de la última investigación" y pide enviarlo/compartirlo ("envíale el resumen", "mándale lo que
+encontraste"): NO vuelvas a buscar (search_query "", broad_query "", searches []), new_request true, reply_to_chats true,
+send_to con el destinatario, y message = ese resumen completo adaptado como mensaje de WhatsApp en primera persona
+(con los datos concretos, no solo un saludo).
 Los números de teléfono aparecen como [número]; no los escribas en el mensaje."""
 
 SCHEMA = {'type': 'object', 'additionalProperties': False,
-    'required': ['reply', 'search_query', 'broad_query', 'searches', 'message', 'ready', 'new_request', 'exclude',
+    'required': ['reply', 'confirm', 'search_query', 'broad_query', 'searches', 'message', 'ready', 'new_request', 'exclude',
         'read_chats', 'chat_names', 'keywords', 'hours', 'reply_to_chats', 'read_email', 'email_query', 'email_reply', 'email_subject', 'read_social', 'social_platforms', 'reply_social', 'send_to'],
-    'properties': {'reply': {'type': 'string'}, 'search_query': {'type': 'string'}, 'broad_query': {'type': 'string'},
+    'properties': {'reply': {'type': 'string'}, 'confirm': {'type': 'boolean'}, 'search_query': {'type': 'string'}, 'broad_query': {'type': 'string'},
         'searches': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['source', 'query'],
             'properties': {'source': {'type': 'string', 'enum': list(('google', 'yahoo', 'facebook', 'instagram', 'x', 'youtube', 'reddit', 'threads', 'tiktok'))}, 'query': {'type': 'string'}}}},
         'message': {'type': 'string'}, 'ready': {'type': 'boolean'}, 'new_request': {'type': 'boolean'},
@@ -120,14 +125,17 @@ def claude_cli(system, user, schema, files_dir=None):
     return out['structured_output']
 
 
-def plan(text, previous=None, *, context='', model=claude_cli):
-    """previous: {'plan', 'found'} of the pending request; numbers stay out of the model input."""
+def plan(text, previous=None, *, context='', last_research=None, model=claude_cli):
+    """previous: {'plan', 'found'} of the pending request; last_research: {'request', 'summary'} kept across requests.
+    Numbers stay out of the model input."""
     user = text
     if previous is not None:
         listed = '\n'.join(str(i) + '. [número] · ' + row['title'] for i, row in enumerate(previous['found'], 1))
         user = ('Plan anterior:\n' + json.dumps(previous['plan'], ensure_ascii=False) + '\nDestinatarios:\n' + (listed or 'ninguno')
-            + ('\nResumen de la última investigación:\n' + previous['summary'] if previous.get('summary') else '')
             + '\n\nTexto nuevo del usuario:\n' + text)
+    if last_research:
+        user = ('Resumen de la última investigación (pedido: «' + last_research['request'] + '»):\n' + last_research['summary']
+            + '\n\n' + user)
     if context:
         user = 'Conversación reciente (para entender referencias como "eso", "el segundo", "también a…"):\n' + context + '\n\n' + user
     try:
@@ -142,7 +150,7 @@ def plan(text, previous=None, *, context='', model=claude_cli):
         if isinstance(document.get(key), str):
             document[key] = document[key].strip().strip('"\'').strip()  # the model sometimes returns '""'
     if set(document) != set(SCHEMA['required']) or not all(
-            type(document[k]) is bool for k in ('ready', 'new_request', 'read_chats', 'reply_to_chats', 'read_email', 'email_reply',
+            type(document[k]) is bool for k in ('ready', 'confirm', 'new_request', 'read_chats', 'reply_to_chats', 'read_email', 'email_reply',
                 'read_social', 'reply_social')) or not all(p in ('x', 'messenger', 'instagram', 'marketplace') for p in document['social_platforms']) or not all(
             isinstance(document[k], str) for k in ('reply', 'search_query', 'broad_query', 'message', 'keywords', 'email_query', 'email_subject')) or not all(
             type(i) is int for i in document['exclude']) or type(document['hours']) is not int or not all(
@@ -221,6 +229,30 @@ def search_batch(plan, limit=6):
     return list(dict.fromkeys((s, q.strip()) for s, q in batch if q.strip()))[:limit]
 
 
+def channel_text(text, channel):
+    """Model Markdown-lite -> the exact text a channel renders.
+
+    whatsapp: **b** -> *b*, *i* -> _i_, `c` -> ```c```, # titles -> *bold*, -/* bullets -> •
+    plain (email, X): same structure without any markers.
+    """
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        heading = re.fullmatch(r'#{1,6}\s+(.+)', stripped)
+        if heading:
+            line = '**' + heading.group(1).strip('* ') + '**'
+        elif re.match(r'[-*]\s+', stripped):
+            line = '• ' + stripped[2:].lstrip()
+        lines.append(line)
+    text = re.sub(r'\*\*(.+?)\*\*', '\x00\\1\x01', '\n'.join(lines))  # protect bold before single-* italics
+    if channel == 'whatsapp':
+        text = re.sub(r'(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])', r'_\1_', text)
+        text = re.sub(r'`([^`\n]+)`', r'```\1```', text)
+        return text.replace('\x00', '*').replace('\x01', '*')
+    text = re.sub(r'(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])', r'\1', text)
+    return re.sub(r'`([^`\n]+)`', r'\1', text).replace('\x00', '').replace('\x01', '')
+
+
 def telegram_html(text, limit=3800):
     """Model Markdown-lite -> Telegram HTML chunks (parse_mode HTML; only <b>/<i>/<code>).
 
@@ -292,7 +324,7 @@ if __name__ == '__main__':
         '+584141234567', '+584241234567', '+582125551234']
     assert phones('ref 2024123456789 y +58 412 1234567') == ['+584121234567']
     assert redact('escríbele al 04141234567') == 'escríbele al [número]'
-    fake = lambda system, user, schema: {'reply': 'ok', 'search_query': 'q', 'broad_query': '', 'searches': [{'source': 'x', 'query': '"op"'},
+    fake = lambda system, user, schema: {'reply': 'ok', 'confirm': False, 'search_query': 'q', 'broad_query': '', 'searches': [{'source': 'x', 'query': '"op"'},
         {'source': 'myspace', 'query': 'no'}], 'message': 'm',
         'ready': True, 'new_request': True, 'exclude': [], 'read_chats': False, 'chat_names': [], 'keywords': '',
         'hours': 24, 'reply_to_chats': False, 'read_email': False, 'email_query': '', 'email_reply': False, 'email_subject': '', 'read_social': False, 'social_platforms': [], 'reply_social': False, 'send_to': []}
@@ -304,6 +336,9 @@ if __name__ == '__main__':
     assert telegram_html('<b>no</b>') == ['&lt;b&gt;no&lt;/b&gt;']
     long = telegram_html('\n\n'.join(['p' * 1000] * 9))
     assert len(long) == 3 and all(len(c) <= 3800 for c in long)
+    md = '## Precios\n**Kit 5 etapas**: 150$ en *Tienda X*\n- membranas `35$`'
+    assert channel_text(md, 'whatsapp') == '*Precios*\n*Kit 5 etapas*: 150$ en _Tienda X_\n• membranas ```35$```', channel_text(md, 'whatsapp')
+    assert channel_text(md, 'plain') == 'Precios\nKit 5 etapas: 150$ en Tienda X\n• membranas 35$', channel_text(md, 'plain')
     two = lambda system, user, schema: {'answer': 'Listo.</answer>\n</invoke>', 'message': 'Hola <b>x</b>'}
     assert answer('p', [], model=two) == ('Listo.', 'Hola <b>x</b>')
     print('ok')
