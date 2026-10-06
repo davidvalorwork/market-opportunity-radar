@@ -347,10 +347,17 @@ class Pilot:
         """Telegram voice note -> local Whisper transcript -> same flow as typed text."""
         from radar.adapters.telegram.bot_api import TelegramError
         from . import transcribe
-        try:
-            data, path = self.api.download_file(file_id)
-        except TelegramError:
-            return self.tell(authority,event+':voice','No pude descargar el audio (máximo 20 MB).')
+        for attempt in range(3):  # transient Telegram/network timeouts are common; the file id stays valid
+            try:
+                data, path = self.api.download_file(file_id)
+                break
+            except TelegramError as error:
+                print(json.dumps({'component':'voice','attempt':attempt,'error':str(error)[:120]}), file=sys.stderr, flush=True)
+                if 'too large' in str(error):
+                    return self.tell(authority,event+':voice','El audio supera el límite de Telegram para bots (20 MB).')
+                time.sleep(2 * (attempt + 1))
+        else:
+            return self.tell(authority,event+':voice','No pude descargar el audio de Telegram (falla de conexión). Reenvíalo, por favor.')
         with tempfile.TemporaryDirectory(prefix='radar-voz-') as folder:
             audio = Path(folder)/('nota'+(Path(path).suffix or '.ogg'))
             audio.write_bytes(data)
