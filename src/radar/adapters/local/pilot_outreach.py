@@ -94,19 +94,39 @@ class OutreachError(Exception):
     pass
 
 
+# US/Canada (NANP): separators or "+1" required so ids/dates/prices don't match; area and exchange start 2-9.
+NANP = re.compile(r'(?<![\d+])(?:\+?1[\s.-]?)?(?:\(([2-9]\d{2})\)\s*|([2-9]\d{2})[\s.-])([2-9]\d{2})[\s.-]?(\d{4})(?!\d)'
+    r'|(?<![\d+])\+1\s?([2-9]\d{2})([2-9]\d{2})(\d{4})(?!\d)')
+# Any other country written with an explicit "+<country code>" (8-15 digits, ITU E.164).
+INTERNATIONAL = re.compile(r'(?<![\w+])\+(?!1\b|1[\s.(-]|58)(\d[\d\s().-]{6,18}\d)(?!\d)')
+PATTERNS = (PHONE, NANP, INTERNATIONAL)
+
+
 def phones(text):
+    """Published phone numbers -> E.164, in order: Venezuela (+58), US/Canada (+1), other explicit +CC numbers."""
     found = []
+    def add(number):
+        if number not in found:
+            found.append(number)
     for match in PHONE.finditer(text):
         digits = re.sub(r'\D', '', match.group())
         digits = digits[2:] if digits.startswith('58') else digits[1:]
-        number = '+58' + digits
-        if len(digits) == 10 and number not in found:
-            found.append(number)
+        if len(digits) == 10:
+            add('+58' + digits)
+    rest = PHONE.sub(' ', text)  # a Venezuelan number must not be re-read as a US one
+    for match in NANP.finditer(rest):
+        add('+1' + ''.join(g for g in match.groups() if g))
+    for match in INTERNATIONAL.finditer(NANP.sub(' ', rest)):
+        digits = re.sub(r'\D', '', match.group(1))
+        if 8 <= len(digits) <= 15:
+            add('+' + digits)
     return found
 
 
 def redact(text):
-    return PHONE.sub('[número]', text)
+    for pattern in PATTERNS:
+        text = pattern.sub('[número]', text)
+    return text
 
 
 def claude_cli(system, user, schema, files_dir=None):
@@ -330,6 +350,11 @@ if __name__ == '__main__':
         '+584141234567', '+584241234567', '+582125551234']
     assert phones('ref 2024123456789 y +58 412 1234567') == ['+584121234567']
     assert redact('escríbele al 04141234567') == 'escríbele al [número]'
+    assert phones('Call (281) 555-1234 or 832.555.9876, +1 713 555 0000, toll free 1-800-555-0199') == [
+        '+12815551234', '+18325559876', '+17135550000', '+18005550199']
+    assert phones('SKU 2815551234, 2026-10-05, $1,299.99, 58 412 123 4567') == ['+584121234567']  # no bare 10-digit ids
+    assert phones('España +34 612 34 56 78, Colombia +57 300 1234567') == ['+34612345678', '+573001234567']
+    assert redact('call (281) 555-1234') == 'call [número]'
     fake = lambda system, user, schema: {'reply': 'ok', 'confirm': False, 'depth': 'normal', 'search_query': 'q', 'broad_query': '', 'searches': [{'source': 'x', 'query': '"op"'},
         {'source': 'myspace', 'query': 'no'}], 'message': 'm',
         'ready': True, 'new_request': True, 'exclude': [], 'read_chats': False, 'chat_names': [], 'keywords': '',
