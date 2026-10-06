@@ -415,6 +415,11 @@ class Pilot:
 
     def request(self, authority, event, text):
         current = self.load(authority,'outreach','active')
+        if current and current.get('state') == 'researching':
+            current['queued'] = current.get('queued', []) + [text]
+            self.save(authority,'outreach','active',current)
+            return self.tell(authority,event+':queued','Sigo con la investigación en curso; cuando termine aplico: «'+text[:200]+
+                '» usando sus resultados. Escribe /cancelar si prefieres detenerla.')
         previous = current if current and (current['state'] in ('planned','found') or current.get('summary')) else None
         context = self.context(authority)
         self.remember(authority,'user',text)
@@ -430,6 +435,21 @@ class Pilot:
             return self.tell(authority,event+':confirm','Toca '+('una de las opciones' if current['state']=='choosing' else 'el botón Enviar')+
                 ' del mensaje anterior para confirmar destinatarios y texto exactos.')
         direct = [{'phone':p,'url':'','title':'indicado por ti'} for p in outreach.phones(text)]
+        last = self.load(authority,'research','last') if plan['use_last_research'] else None
+        if last:
+            plan = {**plan,'search_query':'','broad_query':'','searches':[]}
+            if plan['message'] and not direct and not plan['reply_to_chats'] and last.get('doc'):
+                corpus = [tuple(item) for item in self.load(authority,'corpus',last['doc']) or []]
+                found = outreach.candidates([(url,text_.encode()) for url,text_ in corpus])
+                if not found:
+                    return self.tell(authority,event+':nophones','La última investigación no tiene teléfonos publicados. '
+                        'Pídeme buscar contactos de esos negocios y los busco.')
+                hint = (' (negocios mencionados: '+', '.join(plan['send_to'])+')') if plan['send_to'] else ''
+                chosen, reason = outreach.pick(text+hint, found, last.get('findings', []))
+                plan = {**plan,'send_to':[]}
+                direct += chosen
+                if reason:
+                    plan = {**plan,'reply':plan['reply']+' '+reason}
         if plan['message'] and self.gmail_enabled and not plan['email_reply']:
             direct += [{'phone':a,'url':'','title':'correo indicado por ti','channel':'email',
                 'subject':plan['email_subject'] or 'Consulta'} for a in dict.fromkeys(gmail.EMAIL.findall(text))]
@@ -699,10 +719,13 @@ class Pilot:
             return self.tell(authority,key,'No pude resumir la investigación: '+str(error))
         sources = '\n'.join('• '+title+' — '+url for title,url in pages[:6])
         self.remember(authority,'assistant',summary)
-        self.save(authority,'research','last',{'request':request,'summary':summary})
+        self.save(authority,'research','last',{'request':request,'summary':summary,'doc':doc['id'],'findings':doc.get('findings',[])[:40]})
         self.tell_rich(authority,key+':summary',summary+'\n\n**Fuentes principales**\n'+sources)
         if 'pending' not in doc:  # research only: keep the summary for "envíale el resumen a…"
-            return self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
+            self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[],'queued':[]})
+            for queued in doc.get('queued', []):
+                self.request(authority, key+':queued:'+uuid4().hex, queued)
+            return None
         doc = {**doc,'state':'found','found':doc['pending'],'pages':pages,
             'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':'','broad_query':'','searches':[]}}
         doc.pop('pending')
@@ -746,6 +769,13 @@ class Pilot:
             if route == 'request': self.request(authority,event_ref,text)
             elif route == 'voice': self.voice(authority,event_ref,text)
             elif route == 'context_clear': self.clear_context(authority,event_ref)
+            elif route == 'research_cancel':
+                doc = self.load(authority,'outreach','active')
+                if doc and doc.get('state') in ('researching','planned','found','choosing'):
+                    self.save(authority,'outreach','active',{**doc,'state':'cancelled','queued':[]})
+                    self.tell(authority,event_ref+':cancel','Cancelado. Puedes pedirme otra cosa.')
+                else:
+                    self.tell(authority,event_ref+':cancel','No hay nada en curso que cancelar.')
             elif route == 'pilot_help': self.tell(authority,event_ref,HELP)
             elif route == 'pilot_status': self.tell(authority,event_ref,canonical(runtime.status(authority.owner_ref,authority.actor_ref)))
             elif route == 'research_limits':
