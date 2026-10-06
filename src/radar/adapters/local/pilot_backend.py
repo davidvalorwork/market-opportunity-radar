@@ -25,6 +25,7 @@ from .sqlite import parse, stamp
 from .conversations import SELF_TEST_PURPOSE, SELF_TEST_TEXT
 from . import pilot_outreach as outreach
 from . import gmail
+from . import research
 from .social import Social, SocialError, LABELS
 from email.utils import parseaddr
 import subprocess
@@ -554,6 +555,8 @@ class Pilot:
     def button(self, *, authority, value):
         doc = self.load(authority,'outreach','active')
         key = 'outreach:'+uuid4().hex
+        if doc is not None and doc['id'] == value['doc'] and doc['state'] == 'researching':
+            return self.tell(authority,key,'Sigo investigando; te aviso cuando tenga el resumen.')
         if doc is None or doc['id'] != value['doc'] or doc['state'] not in ('planned','found','choosing'):
             return self.tell(authority,key,'Ese plan ya no está activo.')
         if value['action'] == 'pick':
@@ -572,48 +575,13 @@ class Pilot:
         if value['action'] == 'search':
             if self.web is None or self.social is None:
                 return self.tell(authority,key,'OpenCLI no está instalado; no puedo buscar.')
+            # Research runs as stages in the dispatch tick (research_tick), never inside this callback's lease.
+            deep = 'pending' in doc or not doc['plan']['message']
+            rounds = research.DEPTH_ROUNDS.get(doc['plan'].get('depth'), 1) if deep else 0
             batch = outreach.search_batch(doc['plan'])
-            self.tell(authority,key+':searching','Buscando en '+str(len(batch))+' fuentes ('+', '.join(dict.fromkeys(
-                outreach.SOURCE_NAMES[s] for s,_ in batch))+'). Puede tardar hasta 3 minutos.')
-            rows, failed, started = (), [], time.monotonic()
-            for source, query in batch:
-                if time.monotonic() - started > 180:  # stay well inside the callback's lease
-                    failed.append(outreach.SOURCE_NAMES[source]+' (sin tiempo)'); continue
-                try:
-                    found = (self.web.search(query,20,timeout=90,max_bytes=2097152)[0] if source == 'google'
-                        else self.social.search(source,query,10))
-                    self.archive('search', doc['id'], '['+source+'] '+query, found, outreach.phones)
-                    rows += tuple(found)
-                except (SourceFailure, SocialError, subprocess.TimeoutExpired, OSError, ValueError):
-                    failed.append(outreach.SOURCE_NAMES[source])
-            seen = set()
-            rows = tuple(r for r in rows if not (r[0] in seen or seen.add(r[0])))
-            if failed:
-                self.tell(authority,key+':failed','Sin resultados o con error en: '+', '.join(failed)+'.')
-            if not rows:
-                return self.tell(authority,key,'Ninguna búsqueda devolvió resultados. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
-            pages = [(content.decode('utf-8','replace').splitlines()[0].removeprefix('Title: ')[:120],url) for url,content in rows]
-            if 'pending' in doc or not doc['plan']['message']:
-                now = datetime.now(timezone.utc)
-                results = [(now,'web: '+title,url,content.decode('utf-8','replace')[:1500]) for (title,url),(_,content) in zip(pages,rows)]
-                try: summary, composed = outreach.answer(doc.get('request') or doc['plan']['search_query'], results)
-                except outreach.OutreachError as error: return self.tell(authority,key,'No pude resumir la búsqueda: '+str(error))
-                sources = '\n'.join('• '+title+' — '+url for title,url in list(dict.fromkeys(pages))[:6])
-                self.remember(authority,'assistant',summary)
-                self.save(authority,'research','last',{'request':doc.get('request') or doc['plan']['search_query'],'summary':summary})
-                self.tell_rich(authority,key+':summary',summary+'\n\n**Fuentes principales**\n'+sources)
-                if 'pending' not in doc:  # research only: nothing to send; keep the summary for "envíale el resumen a…"
-                    self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
-                    return None
-                doc = {**doc,'state':'found','found':doc['pending'],'pages':pages,
-                    'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':'','broad_query':'','searches':[]}}
-                doc.pop('pending')
-            else:
-                doc = {**doc,'state':'found','found':outreach.candidates(rows),'pages':pages}
-                if not doc['found']:
-                    doc['plan'] = {**doc['plan'],'reply':'No encontré números publicados en '+str(len(rows))+' páginas.'}
-            self.save(authority,'outreach','active',doc)
-            return self.show(authority,key,doc)
+            self.save(authority,'outreach','active',{**doc,'state':'researching','stage':'search','rounds':rounds,'batch':batch,'done':[],'findings':[]})
+            return self.tell(authority,key,'🔎 Investigando: '+str(len(batch))+' búsquedas en '+', '.join(dict.fromkeys(outreach.SOURCE_NAMES[s] for s,_ in batch))
+                +(' y '+str(rounds)+' ronda'+('s' if rounds>1 else '')+' de profundización' if rounds else '')+'. Te aviso el avance.')
         queue = self.load(authority,'queue','active') or {'items':[],'next':None,'waiting':False}
         bridge = next(iter(self.bridges))
         queue['items'] += [{'phone':r['phone'],'text':doc['plan']['message'],'bridge':bridge,'request':doc['id'],'label':r['title'],
@@ -621,6 +589,108 @@ class Pilot:
         self.save(authority,'queue','active',queue)
         self.save(authority,'outreach','active',{**doc,'state':'queued'})
         self.tell(authority,key,'En cola: '+str(len(doc['found']))+'. El bridge envía cada 2 s; contactos nuevos: máx. 8 cada 20 min y 30 al día. Las respuestas llegan a tu WhatsApp.')
+
+    def run_batch(self, doc, batch, budget=150):
+        """Run (source, query) searches within a time budget -> (rows, failed source names)."""
+        rows, failed, started = [], [], time.monotonic()
+        for source, query in batch:
+            if time.monotonic() - started > budget:
+                failed.append(outreach.SOURCE_NAMES[source]+' (sin tiempo)'); continue
+            for attempt in range(2):  # shared Chrome bridge: a concurrent automation can reject navigation; retry once
+                try:
+                    found = (self.web.search(query,20,timeout=90,max_bytes=2097152)[0] if source == 'google'
+                        else self.social.search(source,query,10))
+                    self.archive('search', doc['id'], '['+source+'] '+query, found, outreach.phones)
+                    rows += [(url, content.decode('utf-8','replace')) for url,content in found]
+                    break
+                except (SourceFailure, SocialError, subprocess.TimeoutExpired, OSError, ValueError):
+                    if attempt:
+                        failed.append(outreach.SOURCE_NAMES[source])
+                    else:
+                        time.sleep(3)
+        return rows, failed
+
+    def research_tick(self, authority):
+        doc = self.load(authority,'outreach','active')
+        if not doc or doc.get('state') != 'researching':
+            return
+        try:
+            self.research_step(authority, doc)
+        except Exception as error:  # a failed stage must not take the bot down nor loop forever
+            print(json.dumps({'component':'research','stage':doc.get('stage'),'error':type(error).__name__}), file=sys.stderr, flush=True)
+            self.save(authority,'outreach','active',{**doc,'state':'failed'})
+            self.tell(authority,'research:'+uuid4().hex,'La investigación se detuvo por un error ('+type(error).__name__+'). Pídela de nuevo.')
+
+    def research_step(self, authority, doc):
+        """One stage per tick: search -> [analyze -> deepen]*rounds -> synthesize."""
+        key, request = 'research:'+uuid4().hex, doc.get('request') or doc['plan']['search_query']
+        corpus = [tuple(item) for item in self.load(authority,'corpus',doc['id']) or []]
+        def add(rows):
+            known = {url for url,_ in corpus}
+            corpus.extend((url,text) for url,text in rows if url not in known and not known.add(url))
+            del corpus[research.MAX_CORPUS:]
+            self.save(authority,'corpus',doc['id'],[list(item) for item in corpus])
+        stage = doc['stage']
+        if stage == 'search':
+            rows, failed = self.run_batch(doc, doc['batch'])
+            add(rows)
+            doc['done'] = doc['done'] + ['['+s+'] '+q for s,q in doc['batch']]
+            if failed:
+                self.tell(authority,key+':failed','Sin resultados o con error en: '+', '.join(failed)+'.')
+            if not corpus:
+                self.save(authority,'outreach','active',{**doc,'state':'failed'})
+                return self.tell(authority,key,'Ninguna búsqueda devolvió resultados. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
+            if not ('pending' in doc or not doc['plan']['message']):  # contacting businesses found: extract numbers
+                pages = [(text.splitlines()[0].removeprefix('Title: ')[:120] if text else url,url) for url,text in corpus]
+                doc = {**doc,'state':'found','found':outreach.candidates([(u,x.encode()) for u,x in corpus]),'pages':pages}
+                if not doc['found']:
+                    doc['plan'] = {**doc['plan'],'reply':'No encontré números publicados en '+str(len(corpus))+' páginas.'}
+                self.save(authority,'outreach','active',doc)
+                return self.show(authority,key,doc)
+            doc['stage'] = 'analyze' if doc['rounds'] > 0 else 'synthesize'
+            self.tell(authority,key,'Ronda 1 lista: '+str(len(corpus))+' resultados.'+(' Analizo qué falta…' if doc['rounds'] else ' Preparo el resumen…'))
+        elif stage == 'analyze':
+            result = research.analyze(request, corpus, doc['done'])
+            doc['findings'] = (doc['findings'] + result['findings'])[-60:]
+            doc['next'] = {'followups':result['followups'],'read':result['read_urls']}
+            deepen = not result['enough'] and (result['followups'] or result['read_urls'])
+            doc['stage'] = 'deepen' if deepen else 'synthesize'
+            self.tell_rich(authority,key,'🧭 '+result['progress']+(
+                '\n\n**Profundizo:** leo '+str(len(result['read_urls']))+' páginas completas'
+                +''.join('\n• '+outreach.SOURCE_NAMES[s]+': '+q for s,q in result['followups']) if deepen else '\n\nPreparo el resumen final…'))
+        elif stage == 'deepen':
+            node = Path(self.social.node); script = self.social.script
+            pages = [(url,'Title: '+url+'\n'+text) for url in doc['next']['read']
+                for text in [research.read_page(str(node), script, url)] if text]
+            add(pages)
+            rows, _ = self.run_batch(doc, doc['next']['followups'], budget=90)
+            add(rows)
+            doc['done'] = doc['done'] + ['['+s+'] '+q for s,q in doc['next']['followups']]
+            doc['rounds'] -= 1
+            doc['stage'] = 'analyze' if doc['rounds'] > 0 else 'synthesize'
+            self.tell(authority,key,'Leí '+str(len(pages))+' páginas y '+str(len(rows))+' resultados nuevos.'
+                +(' Otra ronda de análisis…' if doc['rounds'] > 0 else ' Preparo el resumen final…'))
+        else:
+            return self.finish_research(authority, doc, corpus, key, request)
+        self.save(authority,'outreach','active',doc)
+
+    def finish_research(self, authority, doc, corpus, key, request):
+        pages = list(dict.fromkeys((text.splitlines()[0].removeprefix('Title: ').removeprefix('# ')[:120] if text else url,url) for url,text in corpus))
+        try: summary, composed = outreach.answer(research.synthesis_request(request, doc.get('findings')), research.corpus_messages(corpus))
+        except outreach.OutreachError as error:
+            self.save(authority,'outreach','active',{**doc,'state':'failed'})
+            return self.tell(authority,key,'No pude resumir la investigación: '+str(error))
+        sources = '\n'.join('• '+title+' — '+url for title,url in pages[:6])
+        self.remember(authority,'assistant',summary)
+        self.save(authority,'research','last',{'request':request,'summary':summary})
+        self.tell_rich(authority,key+':summary',summary+'\n\n**Fuentes principales**\n'+sources)
+        if 'pending' not in doc:  # research only: keep the summary for "envíale el resumen a…"
+            return self.save(authority,'outreach','active',{**doc,'state':'done','pages':pages,'summary':summary,'found':[]})
+        doc = {**doc,'state':'found','found':doc['pending'],'pages':pages,
+            'plan':{**doc['plan'],'message':composed or doc['plan']['message'],'search_query':'','broad_query':'','searches':[]}}
+        doc.pop('pending')
+        self.save(authority,'outreach','active',doc)
+        return self.show(authority,key,doc)
 
     def outreach_tick(self, authority):
         queue = self.load(authority,'queue','active')
@@ -766,6 +836,7 @@ class Pilot:
     def dispatch(self, owner, actor):
         authority = self.fresh(owner_ref=owner,actor_ref=actor)
         self.outreach_tick(authority)
+        self.research_tick(authority)
         self.replies_tick(authority)
         rows = self.store.db.execute("SELECT pointer FROM general_callbacks WHERE owner=? AND actor=? AND kind='approve' AND used=1",(owner,actor)).fetchall()
         for (pointer,) in rows:
