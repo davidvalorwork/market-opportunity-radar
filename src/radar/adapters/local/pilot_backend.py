@@ -417,6 +417,9 @@ class Pilot:
             # "sí / dale" after a plan: run the search; sending always needs the button (exact recipients + text).
             if current['state'] == 'planned' and outreach.search_batch(current['plan']):
                 return self.button(authority=authority,value={'action':'search','doc':current['id']})
+            if current['state'] == 'found' and not current['found']:
+                return self.tell(authority,event+':confirm','No hay destinatarios a quién enviar: no encontré números publicados. '
+                    'Pídeme buscar en otra zona o con otras palabras, o dame tú los números.')
             return self.tell(authority,event+':confirm','Toca '+('una de las opciones' if current['state']=='choosing' else 'el botón Enviar')+
                 ' del mensaje anterior para confirmar destinatarios y texto exactos.')
         direct = [{'phone':p,'url':'','title':'indicado por ti'} for p in outreach.phones(text)]
@@ -641,6 +644,13 @@ class Pilot:
                 self.save(authority,'outreach','active',{**doc,'state':'failed'})
                 return self.tell(authority,key,'Ninguna búsqueda devolvió resultados. Revisa que Chrome con OpenCLI esté abierto y prueba de nuevo.')
             if not ('pending' in doc or not doc['plan']['message']):  # contacting businesses found: extract numbers
+                if len(outreach.candidates([(u,x.encode()) for u,x in corpus])) < 3:
+                    # Snippets rarely carry phones: read the businesses' own pages (contact info), skipping
+                    # aggregators and social groups. Only URLs already found by the searches.
+                    skip = ('facebook.com/groups','yelp.','google.','youtube.','reddit.','x.com','twitter.','instagram.','tiktok.')
+                    sites = [url for url,_ in corpus if not any(s in url for s in skip)][:5]
+                    self.tell(authority,key+':reading','Pocos teléfonos en los resultados; leo '+str(len(sites))+' páginas de los negocios…')
+                    add([(url,'Title: '+url+'\n'+text) for url in sites for text in [research.read_page(self.social.node, self.social.script, url)] if text])
                 pages = [(text.splitlines()[0].removeprefix('Title: ')[:120] if text else url,url) for url,text in corpus]
                 doc = {**doc,'state':'found','found':outreach.candidates([(u,x.encode()) for u,x in corpus]),'pages':pages}
                 if not doc['found']:
