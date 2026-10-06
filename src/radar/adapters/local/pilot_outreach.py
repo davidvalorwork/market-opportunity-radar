@@ -62,7 +62,8 @@ números publicados; escribir a números que él te dé.
 en primera persona como el usuario. Usa SOLO datos que el usuario dio; no inventes datos, precios ni nombres. \
 "" si el pedido no implica escribirle a nadie.
 - ready: true si ya se puede buscar o escribir. false SOLO si falta un dato imprescindible; entonces reply pregunta sólo eso.
-- reply: una frase resumiendo el plan. NO preguntes "¿confirmas?": el usuario aprueba con los botones (Buscar / Enviar).
+- reply: una frase resumiendo el plan. NO preguntes "¿confirmas?": la búsqueda empieza sola y el envío se aprueba con
+  el botón Enviar.
 - use_last_research: true si hay "Resumen de la última investigación" del MISMO tema y el pedido se cumple con ella
   (enviar el resumen, escribir o pedir cotización a los negocios encontrados, elegir los más baratos, preguntar algo de
   esos resultados). Entonces NO busques de nuevo: search_query "", broad_query "", searches []. Para escribir a negocios
